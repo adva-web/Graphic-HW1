@@ -1,6 +1,7 @@
 import numpy as np
 import cv2
 import argparse
+from sklearn.cluster import KMeans
 
 GC_BGD = 0 # Hard bg pixel
 GC_FGD = 1 # Hard fg pixel, will not be used
@@ -17,6 +18,7 @@ def grabcut(img, rect, n_iter=5):
 
     #Initalize the inner square to Foreground
     mask[y:y+h, x:x+w] = GC_PR_FGD
+    # print(list(mask))
     mask[rect[1]+rect[3]//2, rect[0]+rect[2]//2] = GC_FGD
 
     bgGMM, fgGMM = initalize_GMMs(img, mask)
@@ -37,10 +39,26 @@ def grabcut(img, rect, n_iter=5):
     return mask, bgGMM, fgGMM
 
 
-def initalize_GMMs(img, mask):
+# returns the background pixels and foreground pixels of image according to mask
+def split_bg_fg_pixels(mask):
+    bgPixels = ((mask == GC_BGD) | (mask == GC_PR_BGD)).nonzero()
+    fgPixels = ((mask == GC_FGD) | (mask == GC_PR_FGD)).nonzero()
+    # bgPixels = np.transpose((np.logical_or(mask == GC_BGD, mask == GC_PR_BGD)).nonzero())
+    # fgPixels = np.transpose((np.logical_or(mask == GC_FGD, mask == GC_PR_FGD)).nonzero())
+    # print(bgPixels, fgPixels)
+    return bgPixels, fgPixels
+
+
+def initGMM(img, pixels, n_components):
+    pixelsForTrain = img[pixels]
+    return None
+
+
+def initalize_GMMs(img, mask, n_components=5):
     # TODO: implement initalize_GMMs
-    bgGMM = None
-    fgGMM = None
+    bgPixels, fgPixels = split_bg_fg_pixels(mask)
+    bgGMM = initGMM(img, bgPixels, n_components)
+    fgGMM = initGMM(img, bgPixels, n_components)
 
     return bgGMM, fgGMM
 
