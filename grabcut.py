@@ -18,6 +18,8 @@ def grabcut(img, rect, n_iter=5):
     #Initalize the inner square to Foreground
     mask[y:y+h, x:x+w] = GC_PR_FGD
     mask[rect[1]+rect[3]//2, rect[0]+rect[2]//2] = GC_FGD
+    print(mask[y:y+h, x:x+w])
+    print(mask[rect[1]+rect[3]//2, rect[0]+rect[2]//2])
 
     bgGMM, fgGMM = initalize_GMMs(img, mask)
 
@@ -38,9 +40,11 @@ def grabcut(img, rect, n_iter=5):
 
 
 def initalize_GMMs(img, mask):
+     # bg_pixels, fg_pixels = split_bg_fg(img, mask)
+
     # TODO: implement initalize_GMMs
-    bgGMM = None
-    fgGMM = None
+    # bgGMM = init_GMM(bg_pixels)
+    # fgGMM = init_GMM(fg_pixels)
 
     return bgGMM, fgGMM
 
