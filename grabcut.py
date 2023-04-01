@@ -1,7 +1,6 @@
 import numpy as np
 import cv2
 import argparse
-from sklearn.cluster import KMeans
 from sklearn.mixture import GaussianMixture as GMM
 
 #############
@@ -26,14 +25,11 @@ def grabcut(img, rect, n_iter=5):
 
     #Initalize the inner square to Foreground
     mask[y:y+h, x:x+w] = GC_PR_FGD
-    # print(list(mask))
     mask[rect[1]+rect[3]//2, rect[0]+rect[2]//2] = GC_FGD
-    print(mask[y:y+h, x:x+w])
-    print(mask[rect[1]+rect[3]//2, rect[0]+rect[2]//2])
 
     bgGMM, fgGMM = initalize_GMMs(img, mask)
 
-    num_iters = 1
+    num_iters = 1 #should be 1000
     for i in range(num_iters):
         #Update GMM
         bgGMM, fgGMM = update_GMMs(img, mask, bgGMM, fgGMM)
@@ -49,76 +45,85 @@ def grabcut(img, rect, n_iter=5):
     return mask, bgGMM, fgGMM
 
 
-
 # returns the background pixels and foreground pixels of image according to mask
 def split_bg_fg_pixels(mask):
-    bgPixels = ((mask == GC_BGD) | (mask == GC_PR_BGD)).nonzero()
-    fgPixels = ((mask == GC_FGD) | (mask == GC_PR_FGD)).nonzero()
+    bg_pixels = ((mask == GC_BGD) | (mask == GC_PR_BGD)).nonzero()
+    fg_pixels = ((mask == GC_FGD) | (mask == GC_PR_FGD)).nonzero()
+    return bg_pixels, fg_pixels
     # for debug - better view:
-    # bgPixels = np.transpose((np.logical_or(mask == GC_BGD, mask == GC_PR_BGD)).nonzero())
+    # bg_pixels = np.transpose((np.logical_or(mask == GC_BGD, mask == GC_PR_BGD)).nonzero())
     # fgPixels = np.transpose((np.logical_or(mask == GC_FGD, mask == GC_PR_FGD)).nonzero())
-    # print(bgPixels, fgPixels)
-    return bgPixels, fgPixels
+    # print(bg_pixels, fg_pixels)
 
 
-def getPixelsForTrain(img, bgPixels, fgPixels):
-    return img[bgPixels], img[fgPixels]
+def get_pixels_for_train(img, bg_pixels, fg_pixels):
+    return img[bg_pixels], img[fg_pixels]
 
 
 # def initGMM(img, pixels):
 #     pixelsForTrain = img[pixels]
 #     return None
 
-def init_GMM(n_components, bgPixelsForTrain, fgPixelsForTrain):
-    bgGMM = GMM(n_components, covariance_type='full', init_params='kmeans', random_state=0).fit(bgPixelsForTrain)
-    fgGMM = GMM(n_components, covariance_type='full', init_params='kmeans', random_state=0).fit(fgPixelsForTrain)
+def init_GMM(n_components, bg_pixels_for_train, fg_pixels_for_train):
+    bgGMM = GMM(n_components, covariance_type='full', init_params='kmeans', random_state=0).fit(bg_pixels_for_train)
+    fgGMM = GMM(n_components, covariance_type='full', init_params='kmeans', random_state=0).fit(fg_pixels_for_train)
     return bgGMM, fgGMM
 
 
 def initalize_GMMs(img, mask, n_components=5):
     # TODO: implement initalize_GMMs --> check if GMM default function is okay
-    bgPixels, fgPixels = split_bg_fg_pixels(mask)
-    # bgGMM = initGMM(img, bgPixels)
-    # fgGMM = initGMM(img, bgPixels)
-    bgPixelsForTrain, fgPixelsForTrain = getPixelsForTrain(img, bgPixels, fgPixels)
-    return init_GMM(n_components, bgPixelsForTrain, fgPixelsForTrain)
+    bg_pixels, fg_pixels = split_bg_fg_pixels(mask)
+    bg_pixels_for_train, fg_pixels_for_train = get_pixels_for_train(img, bg_pixels, fg_pixels)
+    return init_GMM(n_components, bg_pixels_for_train, fg_pixels_for_train)
 
 
 def update_GMM_weights(pixels, gmm):
-    n_components = len(gmm.weights_)
+    n_components = gmm.weights_.shape[0]
     new_weights = np.zeros(n_components)
     labels = gmm.predict(pixels)
-    unique_lables, count = np.unique(labels, return_counts=True)
+    unique_labels, count = np.unique(labels, return_counts=True)
     num_of_samples = np.sum(count)
-    for i, label in enumerate(unique_lables):
+    for i, label in enumerate(unique_labels):
         new_weights[label] = count[i]/num_of_samples
     gmm.weights_ = new_weights
 
 
 def update_GMM_means(pixels, gmm):
-    n_components = gmm.means_.shape[0]
-    n_features = gmm.means_.shape[1]
+    n_components, n_features = gmm.means_.shape
     new_means = np.zeros((n_components, n_features))
     labels = gmm.predict(pixels)
-    unique_lables, count = np.unique(labels, return_counts=True)
-    for i, label in enumerate(unique_lables):
+    unique_labels, count = np.unique(labels, return_counts=True)
+    for label in unique_labels:
         new_means[label] = np.mean(pixels[label == labels], axis=0)
     gmm.means_ = new_means
 
 
+def update_GMM_covariance_matrix(pixels, gmm):
+    n_components, n_features = gmm.covariances_.shape[:2]
+    new_covariance_matrix = np.zeros((n_components, n_features, n_features))
+    labels = gmm.predict(pixels)
+    unique_labels, count = np.unique(labels, return_counts=True)
+    for i, label in enumerate(unique_labels):
+        if count[i] <= 1:
+            new_covariance_matrix[label] = 0
+        else:
+            new_covariance_matrix[label] = np.cov(np.transpose(pixels[label == labels]))
+    gmm.covariances_ = new_covariance_matrix
+
+
 def update_GMM_fields(pixels, gmm):
-    # update_GMM_weights(pixels, gmm)
+    update_GMM_weights(pixels, gmm)
     update_GMM_means(pixels, gmm)
-    # update_GMM_covariance_matrix(pixels, gmm)
+    update_GMM_covariance_matrix(pixels, gmm)
 
 
 # Define helper functions for the GrabCut algorithm
 def update_GMMs(img, mask, bgGMM, fgGMM):
     # TODO: implement GMM component assignment step
-    bgPixels, fgPixels = split_bg_fg_pixels(mask)
-    bgPixelsForTrain, fgPixelsForTrain = getPixelsForTrain(img, bgPixels, fgPixels)
-    update_GMM_fields(bgPixelsForTrain, bgGMM)
-    update_GMM_fields(fgPixelsForTrain, fgGMM)
+    bg_pixels, fg_pixels = split_bg_fg_pixels(mask)
+    bg_pixels_for_train, fg_pixels_for_train = get_pixels_for_train(img, bg_pixels, fg_pixels)
+    update_GMM_fields(bg_pixels_for_train, bgGMM)
+    update_GMM_fields(fg_pixels_for_train, fgGMM)
     return bgGMM, fgGMM
 
 
