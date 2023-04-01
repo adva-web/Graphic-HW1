@@ -28,6 +28,8 @@ def grabcut(img, rect, n_iter=5):
     mask[y:y+h, x:x+w] = GC_PR_FGD
     # print(list(mask))
     mask[rect[1]+rect[3]//2, rect[0]+rect[2]//2] = GC_FGD
+    print(mask[y:y+h, x:x+w])
+    print(mask[rect[1]+rect[3]//2, rect[0]+rect[2]//2])
 
     bgGMM, fgGMM = initalize_GMMs(img, mask)
 
@@ -45,6 +47,7 @@ def grabcut(img, rect, n_iter=5):
 
     # Return the final mask and the GMMs
     return mask, bgGMM, fgGMM
+
 
 
 # returns the background pixels and foreground pixels of image according to mask
