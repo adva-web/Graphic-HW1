@@ -1,6 +1,7 @@
 import numpy as np
 import cv2
 import argparse
+import igraph
 from sklearn.mixture import GaussianMixture as GMM
 
 #############
@@ -60,10 +61,6 @@ def get_pixels_for_train(img, bg_pixels, fg_pixels):
     return img[bg_pixels], img[fg_pixels]
 
 
-# def initGMM(img, pixels):
-#     pixelsForTrain = img[pixels]
-#     return None
-
 def init_GMM(n_components, bg_pixels_for_train, fg_pixels_for_train):
     bgGMM = GMM(n_components, covariance_type='full', init_params='kmeans', random_state=0).fit(bg_pixels_for_train)
     fgGMM = GMM(n_components, covariance_type='full', init_params='kmeans', random_state=0).fit(fg_pixels_for_train)
@@ -77,32 +74,23 @@ def initalize_GMMs(img, mask, n_components=5):
     return init_GMM(n_components, bg_pixels_for_train, fg_pixels_for_train)
 
 
-def update_GMM_weights(pixels, gmm):
-    n_components = gmm.weights_.shape[0]
+def update_GMM_weights(gmm, n_components, n_features, pixels, labels, unique_labels, count):
     new_weights = np.zeros(n_components)
-    labels = gmm.predict(pixels)
-    unique_labels, count = np.unique(labels, return_counts=True)
     num_of_samples = np.sum(count)
     for i, label in enumerate(unique_labels):
         new_weights[label] = count[i]/num_of_samples
     gmm.weights_ = new_weights
 
 
-def update_GMM_means(pixels, gmm):
-    n_components, n_features = gmm.means_.shape
+def update_GMM_means(gmm, n_components, n_features, pixels, labels, unique_labels, count):
     new_means = np.zeros((n_components, n_features))
-    labels = gmm.predict(pixels)
-    unique_labels, count = np.unique(labels, return_counts=True)
     for label in unique_labels:
         new_means[label] = np.mean(pixels[label == labels], axis=0)
     gmm.means_ = new_means
 
 
-def update_GMM_covariance_matrix(pixels, gmm):
-    n_components, n_features = gmm.covariances_.shape[:2]
+def update_GMM_covariance_matrix(gmm, n_components, n_features, pixels, labels, unique_labels, count):
     new_covariance_matrix = np.zeros((n_components, n_features, n_features))
-    labels = gmm.predict(pixels)
-    unique_labels, count = np.unique(labels, return_counts=True)
     for i, label in enumerate(unique_labels):
         if count[i] <= 1:
             new_covariance_matrix[label] = 0
@@ -112,9 +100,14 @@ def update_GMM_covariance_matrix(pixels, gmm):
 
 
 def update_GMM_fields(pixels, gmm):
-    update_GMM_weights(pixels, gmm)
-    update_GMM_means(pixels, gmm)
-    update_GMM_covariance_matrix(pixels, gmm)
+    n_components = len(gmm.weights_)
+    n_features = gmm.n_features_in_
+    labels = gmm.predict(pixels)
+    unique_labels, count = np.unique(labels, return_counts=True)
+
+    update_GMM_weights(gmm, n_components, n_features, pixels, labels, unique_labels, count)
+    update_GMM_means(gmm, n_components, n_features, pixels, labels, unique_labels, count)
+    update_GMM_covariance_matrix(gmm, n_components, n_features, pixels, labels, unique_labels, count)
 
 
 # Define helper functions for the GrabCut algorithm
@@ -150,6 +143,7 @@ def cal_metric(predicted_mask, gt_mask):
 
     return 100, 100
 
+
 def parse():
     parser = argparse.ArgumentParser()
     parser.add_argument('--input_name', type=str, default='banana1', help='name of image from the course files')
@@ -159,10 +153,10 @@ def parse():
     parser.add_argument('--rect', type=str, default='1,1,100,100', help='if you wish change the rect (x,y,w,h')
     return parser.parse_args()
 
+
 if __name__ == '__main__':
     # Load an example image and define a bounding box around the object of interest
     args = parse()
-
 
     if args.input_img_path == '':
         input_path = f'data/imgs/{args.input_name}.jpg'
