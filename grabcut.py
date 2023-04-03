@@ -11,25 +11,29 @@ GC_BGD = 0 # Hard bg pixel
 GC_FGD = 1 # Hard fg pixel, will not be used
 GC_PR_BGD = 2 # Soft bg pixel
 GC_PR_FGD = 3 # Soft fg pixel
-
+# The constant γ was obtained as 50 by optimizing performance against ground truth over a training set of 15 images.
+# p.2 “GrabCut”
+GAMMA = 50
 ####################
 # GLOBAL VARIABLES #
 ####################
+betha = 0
+
 
 
 # Define the GrabCut algorithm function
 def grabcut(img, rect, n_iter=5):
+    global betha
     # Assign initial labels to the pixels based on the bounding box
     mask = np.zeros(img.shape[:2], dtype=np.uint8)
     mask.fill(GC_BGD)
     x, y, w, h = rect
-
     #Initalize the inner square to Foreground
     mask[y:y+h, x:x+w] = GC_PR_FGD
     mask[rect[1]+rect[3]//2, rect[0]+rect[2]//2] = GC_FGD
+    init_params(img)
 
     bgGMM, fgGMM = initalize_GMMs(img, mask)
-
     num_iters = 1 #should be 1000
     for i in range(num_iters):
         #Update GMM
@@ -44,6 +48,27 @@ def grabcut(img, rect, n_iter=5):
 
     # Return the final mask and the GMMs
     return mask, bgGMM, fgGMM
+
+
+def calc_betha(left, up, upleft, upright , img):
+    global betha
+    # calculate sum of squared differences for each subarray
+    left_sum = np.sum(np.square(left))
+    up_sum = np.sum(np.square(up))
+    upleft_sum = np.sum(np.square(upleft))
+    upright_sum = np.sum(np.square(upright))
+    # calculate total sum of squared differences
+    total_sum = left_sum + up_sum + upleft_sum + upright_sum
+    cols = img.shape[1]
+    rows = img.shape[0]
+    # TODO: !!!!!!to check if we need to add or remove here somthing!!!!!!
+    betha = 1 / (2 * total_sum / (4 * cols * rows - 3 * cols - 3 * rows + 2))
+    # return betha
+
+
+def init_params(img):
+    left,up,upleft,upright = calc_dist_neighbors(img)
+    calc_betha(left,up,upleft,upright, img)
 
 
 # returns the background pixels and foreground pixels of image according to mask
@@ -112,18 +137,66 @@ def update_GMM_fields(pixels, gmm):
 
 # Define helper functions for the GrabCut algorithm
 def update_GMMs(img, mask, bgGMM, fgGMM):
-    # TODO: implement GMM component assignment step
     bg_pixels, fg_pixels = split_bg_fg_pixels(mask)
     bg_pixels_for_train, fg_pixels_for_train = get_pixels_for_train(img, bg_pixels, fg_pixels)
     update_GMM_fields(bg_pixels_for_train, bgGMM)
     update_GMM_fields(fg_pixels_for_train, fgGMM)
     return bgGMM, fgGMM
 
+def calc_dist_neighbors(img):
+    # for each pixle we have 4 neighbors to avoid duplication calculate
+    # np.diff calculate the different between each column from right to left : col[1] - col[0]
+    dist_left_pixels = np.diff(img, axis=1)
+    dist_up_pixels = np.diff(img, axis=0)
+    # where img.shape[i] - 1 it's for not get out of range index
+    dist_upleft_pixels = img[1:, 1:] - img[:(img.shape[0] - 1), :(img.shape[1] - 1)]
+    dist_upright_pixels = img[1:, :(img.shape[1] - 1)] - img[:(img.shape[0] - 1), 1:]
+    return dist_left_pixels,dist_up_pixels,dist_upleft_pixels,dist_upright_pixels
 
 def calculate_mincut(img, mask, bgGMM, fgGMM):
     # TODO: implement energy (cost) calculation step and mincut
     min_cut = [[], []]
     energy = 0
+
+    # n-link
+    edges_n_link = []
+    rows = img.shape[0]
+    columns = img.shape[1]
+    indices_img = np.arange(rows * columns,dtype=np.uint32).reshape(rows, columns)
+
+    slice_img_1 = indices_img[:, 1:].flatten()
+    slice_img_2 = indices_img[:, :columns-1].flatten()
+
+    edges_n_link.extend(list(zip(slice_img_1, slice_img_2)))
+
+    # self.gc_graph_capacity.extend(self.left_V.reshape(-1).tolist())
+
+    #
+    # mask1 = img_indexes[1:, 1:].reshape(-1)
+    # mask2 = img_indexes[:-1, :-1].reshape(-1)
+    # edges.extend(list(zip(mask1, mask2)))
+    # self.gc_graph_capacity.extend(
+    #     self.upleft_V.reshape(-1).tolist())
+    # assert len(edges) == len(self.gc_graph_capacity)
+    #
+    # mask1 = img_indexes[1:, :].reshape(-1)
+    # mask2 = img_indexes[:-1, :].reshape(-1)
+    # edges.extend(list(zip(mask1, mask2)))
+    # self.gc_graph_capacity.extend(self.up_V.reshape(-1).tolist())
+    # assert len(edges) == len(self.gc_graph_capacity)
+    #
+    # mask1 = img_indexes[1:, :-1].reshape(-1)
+    # mask2 = img_indexes[:-1, 1:].reshape(-1)
+    # edges.extend(list(zip(mask1, mask2)))
+    # self.gc_graph_capacity.extend(
+    #     self.upright_V.reshape(-1).tolist())
+    # assert len(edges) == len(self.gc_graph_capacity)
+    #
+    # assert len(edges) == 4 * self.cols * self.rows - 3 * (self.cols + self.rows) + 2 + \
+    #        2 * self.cols * self.rows
+    #
+    # self.gc_graph = ig.Graph(self.cols * self.rows + 2)
+    # self.gc_graph.add_edges(edges)
     return min_cut, energy
 
 
