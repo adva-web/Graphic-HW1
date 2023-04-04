@@ -18,7 +18,10 @@ GAMMA = 50
 # GLOBAL VARIABLES #
 ####################
 betha = 0
-
+weight_left = None
+weight_up = None
+weight_upleft = None
+weight_upright = None
 
 
 # Define the GrabCut algorithm function
@@ -31,6 +34,7 @@ def grabcut(img, rect, n_iter=5):
     #Initalize the inner square to Foreground
     mask[y:y+h, x:x+w] = GC_PR_FGD
     mask[rect[1]+rect[3]//2, rect[0]+rect[2]//2] = GC_FGD
+
     init_params(img)
 
     bgGMM, fgGMM = initalize_GMMs(img, mask)
@@ -50,7 +54,7 @@ def grabcut(img, rect, n_iter=5):
     return mask, bgGMM, fgGMM
 
 
-def calc_betha(left, up, upleft, upright , img):
+def calc_betha(left, up, upleft, upright, img):
     global betha
     # calculate sum of squared differences for each subarray
     left_sum = np.sum(np.square(left))
@@ -66,9 +70,39 @@ def calc_betha(left, up, upleft, upright , img):
     # return betha
 
 
+def weight(dist_neighbors_mat, dist):
+    # according to formula (1) in "Implementing GrabCut" document inspired by formula (11) in the original “GrabCut” document
+    # N(m,n) = (50/dist(m,n))*exp(-betha*||z_m-z_n||^2) -->  GAMMA=50
+    global betha
+    return (GAMMA/dist) * np.exp(-betha * np.sum(np.square(dist_neighbors_mat), axis=2))
+
+
+def calc_weights(left, up, upleft, upright, img):
+    global weight_left, weight_up, weight_upleft, weight_upright
+    diag_dist = np.sqrt(2)
+    straight_dist = 1
+
+    weight_left = weight(left, straight_dist)
+    weight_up = weight(up, straight_dist)
+    weight_upleft = weight(upleft, diag_dist)
+    weight_upright = weight(upright, diag_dist)
+
+
+def calc_dist_neighbors_matrix(img):
+    # for each pixle we have 4 neighbors to avoid duplication calculate
+    # np.diff calculate the different between each column from right to left : col[1] - col[0]
+    dist_left_pixels = np.diff(img, axis=1)
+    dist_up_pixels = np.diff(img, axis=0)
+    # where img.shape[i] - 1 it's for not get out of range index
+    dist_upleft_pixels = img[1:, 1:] - img[:(img.shape[0] - 1), :(img.shape[1] - 1)]
+    dist_upright_pixels = img[1:, :(img.shape[1] - 1)] - img[:(img.shape[0] - 1), 1:]
+    return dist_left_pixels,dist_up_pixels,dist_upleft_pixels,dist_upright_pixels
+
+
 def init_params(img):
-    left,up,upleft,upright = calc_dist_neighbors(img)
-    calc_betha(left,up,upleft,upright, img)
+    left, up, upleft, upright = calc_dist_neighbors_matrix(img)
+    calc_betha(left, up, upleft, upright, img)
+    calc_weights(left, up, upleft, upright, img)
 
 
 # returns the background pixels and foreground pixels of image according to mask
@@ -143,60 +177,52 @@ def update_GMMs(img, mask, bgGMM, fgGMM):
     update_GMM_fields(fg_pixels_for_train, fgGMM)
     return bgGMM, fgGMM
 
-def calc_dist_neighbors(img):
-    # for each pixle we have 4 neighbors to avoid duplication calculate
-    # np.diff calculate the different between each column from right to left : col[1] - col[0]
-    dist_left_pixels = np.diff(img, axis=1)
-    dist_up_pixels = np.diff(img, axis=0)
-    # where img.shape[i] - 1 it's for not get out of range index
-    dist_upleft_pixels = img[1:, 1:] - img[:(img.shape[0] - 1), :(img.shape[1] - 1)]
-    dist_upright_pixels = img[1:, :(img.shape[1] - 1)] - img[:(img.shape[0] - 1), 1:]
-    return dist_left_pixels,dist_up_pixels,dist_upleft_pixels,dist_upright_pixels
 
 def calculate_mincut(img, mask, bgGMM, fgGMM):
     # TODO: implement energy (cost) calculation step and mincut
+    global weight_left, weight_up, weight_upleft, weight_upright
+
     min_cut = [[], []]
     energy = 0
 
-    # n-link
+    # n-link - 4 edges for 4 neighbors: left, up, upleft, upright
     edges_n_link = []
+    weights_n = []
     rows = img.shape[0]
     columns = img.shape[1]
-    indices_img = np.arange(rows * columns,dtype=np.uint32).reshape(rows, columns)
+    indices_img = np.arange(rows * columns, dtype=np.uint32).reshape(rows, columns)
 
+    # left neighbor
     slice_img_1 = indices_img[:, 1:].flatten()
     slice_img_2 = indices_img[:, :columns-1].flatten()
 
     edges_n_link.extend(list(zip(slice_img_1, slice_img_2)))
+    weights_n.extend(list(weight_left.flatten()))
 
-    # self.gc_graph_capacity.extend(self.left_V.reshape(-1).tolist())
+    # up neighbor
+    slice_img_1 = indices_img[1:, :].flatten()
+    slice_img_2 = indices_img[:rows - 1, :].flatten()
 
-    #
-    # mask1 = img_indexes[1:, 1:].reshape(-1)
-    # mask2 = img_indexes[:-1, :-1].reshape(-1)
-    # edges.extend(list(zip(mask1, mask2)))
-    # self.gc_graph_capacity.extend(
-    #     self.upleft_V.reshape(-1).tolist())
-    # assert len(edges) == len(self.gc_graph_capacity)
-    #
-    # mask1 = img_indexes[1:, :].reshape(-1)
-    # mask2 = img_indexes[:-1, :].reshape(-1)
-    # edges.extend(list(zip(mask1, mask2)))
-    # self.gc_graph_capacity.extend(self.up_V.reshape(-1).tolist())
-    # assert len(edges) == len(self.gc_graph_capacity)
-    #
-    # mask1 = img_indexes[1:, :-1].reshape(-1)
-    # mask2 = img_indexes[:-1, 1:].reshape(-1)
-    # edges.extend(list(zip(mask1, mask2)))
-    # self.gc_graph_capacity.extend(
-    #     self.upright_V.reshape(-1).tolist())
-    # assert len(edges) == len(self.gc_graph_capacity)
-    #
-    # assert len(edges) == 4 * self.cols * self.rows - 3 * (self.cols + self.rows) + 2 + \
-    #        2 * self.cols * self.rows
-    #
-    # self.gc_graph = ig.Graph(self.cols * self.rows + 2)
-    # self.gc_graph.add_edges(edges)
+    edges_n_link.extend(list(zip(slice_img_1, slice_img_2)))
+    weights_n.extend(list(weight_up.flatten()))
+
+    # upleft neighbor
+    slice_img_1 = indices_img[1:, 1:].flatten()
+    slice_img_2 = indices_img[:rows - 1, :columns-1].flatten()
+
+    edges_n_link.extend(list(zip(slice_img_1, slice_img_2)))
+    weights_n.extend(list(weight_upleft.flatten()))
+
+    # upright neighbor
+    slice_img_1 = indices_img[1:, :columns-1].flatten()
+    slice_img_2 = indices_img[:rows - 1, 1:].flatten()
+
+    edges_n_link.extend(list(zip(slice_img_1, slice_img_2)))
+    weights_n.extend(list(weight_upright.flatten()))
+
+    graph = igraph.Graph(columns * rows + 2)
+    graph.add_edges(edges_n_link)
+
     return min_cut, energy
 
 
