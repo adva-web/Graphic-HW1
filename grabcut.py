@@ -11,27 +11,32 @@ GC_BGD = 0 # Hard bg pixel
 GC_FGD = 1 # Hard fg pixel, will not be used
 GC_PR_BGD = 2 # Soft bg pixel
 GC_PR_FGD = 3 # Soft fg pixel
-# The constant γ was obtained as 50 by optimizing performance against ground truth over a training set of 15 images.
-# p.2 “GrabCut”
+
+# The constant gamma was obtained as 50 by optimizing performance against ground truth over a training set of 15 images.
+# P.2 “GrabCut”
 GAMMA = 50
+
 ####################
 # GLOBAL VARIABLES #
 ####################
-betha = 0
-weight_left = None
-weight_up = None
-weight_upleft = None
-weight_upright = None
+beta = 0
+rows = 0
+columns = 0
+weight_left = np.empty(0)
+weight_up = np.empty(0)
+weight_upleft = np.empty(0)
+weight_upright = np.empty(0)
 
 
 # Define the GrabCut algorithm function
 def grabcut(img, rect, n_iter=5):
-    global betha
+    global beta
     # Assign initial labels to the pixels based on the bounding box
     mask = np.zeros(img.shape[:2], dtype=np.uint8)
     mask.fill(GC_BGD)
     x, y, w, h = rect
-    #Initalize the inner square to Foreground
+
+    # Initialize the inner square to Foreground
     mask[y:y+h, x:x+w] = GC_PR_FGD
     mask[rect[1]+rect[3]//2, rect[0]+rect[2]//2] = GC_FGD
 
@@ -54,30 +59,30 @@ def grabcut(img, rect, n_iter=5):
     return mask, bgGMM, fgGMM
 
 
-def calc_betha(left, up, upleft, upright, img):
-    global betha
-    # calculate sum of squared differences for each subarray
+def calculate_beta(left, up, upleft, upright):
+    # Calculate sum of squared differences for each subarray
     left_sum = np.sum(np.square(left))
     up_sum = np.sum(np.square(up))
     upleft_sum = np.sum(np.square(upleft))
     upright_sum = np.sum(np.square(upright))
-    # calculate total sum of squared differences
+
+    # Calculate total sum of squared differences
     total_sum = left_sum + up_sum + upleft_sum + upright_sum
-    cols = img.shape[1]
-    rows = img.shape[0]
+
     # TODO: !!!!!!to check if we need to add or remove here somthing!!!!!!
-    betha = 1 / (2 * total_sum / (4 * cols * rows - 3 * cols - 3 * rows + 2))
-    # return betha
+    global beta, rows, columns
+    beta = 1 / (2 * total_sum / (4 * columns * rows - 3 * columns - 3 * rows + 2))
 
 
+# Calculate edge weight according to formula (1) in "Implementing GrabCut" document
+# N(m,n) = (50/dist(m,n))*exp(-beta*||z_m-z_n||^2) -->  GAMMA=50
+# Inspired by formula (11) in the original “GrabCut” document
 def weight(dist_neighbors_mat, dist):
-    # according to formula (1) in "Implementing GrabCut" document inspired by formula (11) in the original “GrabCut” document
-    # N(m,n) = (50/dist(m,n))*exp(-betha*||z_m-z_n||^2) -->  GAMMA=50
-    global betha
-    return (GAMMA/dist) * np.exp(-betha * np.sum(np.square(dist_neighbors_mat), axis=2))
+    global beta
+    return (GAMMA/dist) * np.exp(-beta * np.sum(np.square(dist_neighbors_mat), axis=2))
 
 
-def calc_weights(left, up, upleft, upright, img):
+def calculate_weights(left, up, upleft, upright):
     global weight_left, weight_up, weight_upleft, weight_upright
     diag_dist = np.sqrt(2)
     straight_dist = 1
@@ -88,24 +93,30 @@ def calc_weights(left, up, upleft, upright, img):
     weight_upright = weight(upright, diag_dist)
 
 
-def calc_dist_neighbors_matrix(img):
-    # for each pixle we have 4 neighbors to avoid duplication calculate
-    # np.diff calculate the different between each column from right to left : col[1] - col[0]
+# Calculate for each pixel the difference to its 4 direct neighbors
+def calculate_dist_neighbors_matrix(img):
+    # Difference between columns (col i+1 to col i)
     dist_left_pixels = np.diff(img, axis=1)
+
+    # Difference between rows (row i+1 to row i)
     dist_up_pixels = np.diff(img, axis=0)
-    # where img.shape[i] - 1 it's for not get out of range index
+
+    # Where img.shape[i] - 1 it's for not get out of range index
     dist_upleft_pixels = img[1:, 1:] - img[:(img.shape[0] - 1), :(img.shape[1] - 1)]
     dist_upright_pixels = img[1:, :(img.shape[1] - 1)] - img[:(img.shape[0] - 1), 1:]
-    return dist_left_pixels,dist_up_pixels,dist_upleft_pixels,dist_upright_pixels
+    return dist_left_pixels, dist_up_pixels, dist_upleft_pixels, dist_upright_pixels
 
 
 def init_params(img):
-    left, up, upleft, upright = calc_dist_neighbors_matrix(img)
-    calc_betha(left, up, upleft, upright, img)
-    calc_weights(left, up, upleft, upright, img)
+    global rows, columns
+    rows = img.shape[0]
+    columns = img.shape[1]
+    left, up, upleft, upright = calculate_dist_neighbors_matrix(img)
+    calculate_beta(left, up, upleft, upright)
+    calculate_weights(left, up, upleft, upright)
 
 
-# returns the background pixels and foreground pixels of image according to mask
+# Returns the background pixels and foreground pixels of image according to mask
 def split_bg_fg_pixels(mask):
     bg_pixels = ((mask == GC_BGD) | (mask == GC_PR_BGD)).nonzero()
     fg_pixels = ((mask == GC_FGD) | (mask == GC_PR_FGD)).nonzero()
@@ -120,20 +131,20 @@ def get_pixels_for_train(img, bg_pixels, fg_pixels):
     return img[bg_pixels], img[fg_pixels]
 
 
-def init_GMM(n_components, bg_pixels_for_train, fg_pixels_for_train):
-    bgGMM = GMM(n_components, covariance_type='full', init_params='kmeans', random_state=0).fit(bg_pixels_for_train)
-    fgGMM = GMM(n_components, covariance_type='full', init_params='kmeans', random_state=0).fit(fg_pixels_for_train)
-    return bgGMM, fgGMM
+def create_GMM(n_components, pixels_for_train):
+    return GMM(n_components, covariance_type='full', init_params='kmeans', random_state=0).fit(pixels_for_train)
 
 
 def initalize_GMMs(img, mask, n_components=5):
     # TODO: implement initalize_GMMs --> check if GMM default function is okay
     bg_pixels, fg_pixels = split_bg_fg_pixels(mask)
     bg_pixels_for_train, fg_pixels_for_train = get_pixels_for_train(img, bg_pixels, fg_pixels)
-    return init_GMM(n_components, bg_pixels_for_train, fg_pixels_for_train)
+    bgGMM = create_GMM(n_components, bg_pixels_for_train)
+    fgGMM = create_GMM(n_components, fg_pixels_for_train)
+    return bgGMM, fgGMM
 
 
-def update_GMM_weights(gmm, n_components, n_features, pixels, labels, unique_labels, count):
+def update_GMM_weights(gmm, n_components, unique_labels, count):
     new_weights = np.zeros(n_components)
     num_of_samples = np.sum(count)
     for i, label in enumerate(unique_labels):
@@ -141,7 +152,7 @@ def update_GMM_weights(gmm, n_components, n_features, pixels, labels, unique_lab
     gmm.weights_ = new_weights
 
 
-def update_GMM_means(gmm, n_components, n_features, pixels, labels, unique_labels, count):
+def update_GMM_means(gmm, n_components, n_features, pixels, labels, unique_labels):
     new_means = np.zeros((n_components, n_features))
     for label in unique_labels:
         new_means[label] = np.mean(pixels[label == labels], axis=0)
@@ -164,8 +175,8 @@ def update_GMM_fields(pixels, gmm):
     labels = gmm.predict(pixels)
     unique_labels, count = np.unique(labels, return_counts=True)
 
-    update_GMM_weights(gmm, n_components, n_features, pixels, labels, unique_labels, count)
-    update_GMM_means(gmm, n_components, n_features, pixels, labels, unique_labels, count)
+    update_GMM_weights(gmm, n_components, unique_labels, count)
+    update_GMM_means(gmm, n_components, n_features, pixels, labels, unique_labels)
     update_GMM_covariance_matrix(gmm, n_components, n_features, pixels, labels, unique_labels, count)
 
 
@@ -178,47 +189,39 @@ def update_GMMs(img, mask, bgGMM, fgGMM):
     return bgGMM, fgGMM
 
 
+def add_n_edges(edges_n_link, weights_n, indices_img1, indices_img2, weight):
+    slice_img_1 = indices_img1.flatten()
+    slice_img_2 = indices_img2.flatten()
+    edges_n_link.extend(list(zip(slice_img_1, slice_img_2)))
+    weights_n.extend(list(weight.flatten()))
+
+
+# N-link - 4 edges for 4 neighbors: left, up, upleft, upright
+def calculate_n_links():
+    global rows, columns, weight_left, weight_up, weight_upleft, weight_upright
+    edges_n_link = []
+    weights_n = []
+    indices_img = np.arange(rows * columns, dtype=np.uint32).reshape(rows, columns)
+
+    # Left neighbor
+    add_n_edges(edges_n_link, weights_n, indices_img[:, 1:], indices_img[:, :-1], weight_left)
+    # Up neighbor
+    add_n_edges(edges_n_link, weights_n, indices_img[1:, :], indices_img[:- 1, :], weight_up)
+    # Upleft neighbor
+    add_n_edges(edges_n_link, weights_n, indices_img[1:, 1:], indices_img[:- 1, :-1], weight_upleft)
+    # Upright neighbor
+    add_n_edges(edges_n_link, weights_n, indices_img[1:, :-1], indices_img[:-1, 1:], weight_upright)
+
+    return edges_n_link, weights_n
+
+
 def calculate_mincut(img, mask, bgGMM, fgGMM):
     # TODO: implement energy (cost) calculation step and mincut
-    global weight_left, weight_up, weight_upleft, weight_upright
-
+    global rows, columns
     min_cut = [[], []]
     energy = 0
 
-    # n-link - 4 edges for 4 neighbors: left, up, upleft, upright
-    edges_n_link = []
-    weights_n = []
-    rows = img.shape[0]
-    columns = img.shape[1]
-    indices_img = np.arange(rows * columns, dtype=np.uint32).reshape(rows, columns)
-
-    # left neighbor
-    slice_img_1 = indices_img[:, 1:].flatten()
-    slice_img_2 = indices_img[:, :columns-1].flatten()
-
-    edges_n_link.extend(list(zip(slice_img_1, slice_img_2)))
-    weights_n.extend(list(weight_left.flatten()))
-
-    # up neighbor
-    slice_img_1 = indices_img[1:, :].flatten()
-    slice_img_2 = indices_img[:rows - 1, :].flatten()
-
-    edges_n_link.extend(list(zip(slice_img_1, slice_img_2)))
-    weights_n.extend(list(weight_up.flatten()))
-
-    # upleft neighbor
-    slice_img_1 = indices_img[1:, 1:].flatten()
-    slice_img_2 = indices_img[:rows - 1, :columns-1].flatten()
-
-    edges_n_link.extend(list(zip(slice_img_1, slice_img_2)))
-    weights_n.extend(list(weight_upleft.flatten()))
-
-    # upright neighbor
-    slice_img_1 = indices_img[1:, :columns-1].flatten()
-    slice_img_2 = indices_img[:rows - 1, 1:].flatten()
-
-    edges_n_link.extend(list(zip(slice_img_1, slice_img_2)))
-    weights_n.extend(list(weight_upright.flatten()))
+    edges_n_link, weights_n = calculate_n_links()
 
     graph = igraph.Graph(columns * rows + 2)
     graph.add_edges(edges_n_link)
