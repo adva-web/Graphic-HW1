@@ -22,6 +22,7 @@ GAMMA = 50
 beta = 0
 rows = 0
 columns = 0
+n_comp = 5
 weight_left = np.empty(0)
 weight_up = np.empty(0)
 weight_upleft = np.empty(0)
@@ -141,36 +142,42 @@ def get_pixels_for_train(img, bg_pixels, fg_pixels):
     return img[bg_pixels], img[fg_pixels]
 
 
-def create_GMM(n_components, pixels_for_train):
-    return GMM(n_components, covariance_type='full', init_params='kmeans', random_state=0).fit(pixels_for_train)
+def create_GMM(pixels_for_train):
+    global n_comp
+    return GMM(n_comp, covariance_type='full', init_params='kmeans', random_state=0).fit(pixels_for_train)
 
 
 def initalize_GMMs(img, mask, n_components=5):
     # TODO: implement initalize_GMMs --> check if GMM default function is okay
+    global n_comp
+    n_comp = n_components
     bg_pixels, fg_pixels = split_bg_fg_pixels(mask)
     bg_pixels_for_train, fg_pixels_for_train = get_pixels_for_train(img, bg_pixels, fg_pixels)
-    bgGMM = create_GMM(n_components, bg_pixels_for_train)
-    fgGMM = create_GMM(n_components, fg_pixels_for_train)
+    bgGMM = create_GMM(bg_pixels_for_train)
+    fgGMM = create_GMM(fg_pixels_for_train)
     return bgGMM, fgGMM
 
 
-def update_GMM_weights(gmm, n_components, unique_labels, count):
-    new_weights = np.zeros(n_components)
+def update_GMM_weights(gmm, unique_labels, count):
+    global n_comp
+    new_weights = np.zeros(n_comp)
     num_of_samples = np.sum(count)
     for i, label in enumerate(unique_labels):
         new_weights[label] = count[i]/num_of_samples
     gmm.weights_ = new_weights
 
 
-def update_GMM_means(gmm, n_components, n_features, pixels, labels, unique_labels):
-    new_means = np.zeros((n_components, n_features))
+def update_GMM_means(gmm, n_features, pixels, labels, unique_labels):
+    global n_comp
+    new_means = np.zeros((n_comp, n_features))
     for label in unique_labels:
         new_means[label] = np.mean(pixels[label == labels], axis=0)
     gmm.means_ = new_means
 
 
-def update_GMM_covariance_matrix(gmm, n_components, n_features, pixels, labels, unique_labels, count):
-    new_covariance_matrix = np.zeros((n_components, n_features, n_features))
+def update_GMM_covariance_matrix(gmm, n_features, pixels, labels, unique_labels, count):
+    global n_comp
+    new_covariance_matrix = np.zeros((n_comp, n_features, n_features))
     for i, label in enumerate(unique_labels):
         if count[i] <= 1:
             new_covariance_matrix[label] = 0
@@ -180,14 +187,13 @@ def update_GMM_covariance_matrix(gmm, n_components, n_features, pixels, labels, 
 
 
 def update_GMM_fields(pixels, gmm):
-    n_components = len(gmm.weights_)
     n_features = gmm.n_features_in_
     labels = gmm.predict(pixels)
     unique_labels, count = np.unique(labels, return_counts=True)
-
-    update_GMM_weights(gmm, n_components, unique_labels, count)
-    update_GMM_means(gmm, n_components, n_features, pixels, labels, unique_labels)
-    update_GMM_covariance_matrix(gmm, n_components, n_features, pixels, labels, unique_labels, count)
+    # Update weights, means, covariance_matrix
+    update_GMM_weights(gmm, unique_labels, count)
+    update_GMM_means(gmm, n_features, pixels, labels, unique_labels)
+    update_GMM_covariance_matrix(gmm, n_features, pixels, labels, unique_labels, count)
 
 
 # Define helper functions for the GrabCut algorithm
@@ -224,6 +230,47 @@ def calculate_n_links():
 
     return edges_n_link, weights_n
 
+################################################################
+################################################################
+
+
+# Calculate the probability each sample belongs to specific component in GMM
+def calculate_probability_for_component(samples, component, gmm):
+    res = np.zeros(samples.shape[0])
+    if gmm.weights_[component] > 0:
+        diff = samples - gmm.means_[component]
+        mult = np.einsum('ij,ij->i', diff, np.dot(np.linalg.inv(gmm.covariances_[component]), diff.T).T)
+        res = np.exp(-.5 * mult) / np.sqrt(2 * np.pi) / np.sqrt(np.linalg.det(gmm.covariances_[component]))
+    return res
+
+
+# For each sample return the probability to belong each component in GMM
+def calculate_probabilities(samples, gmm):
+    global n_comp
+    return np.array([calculate_probability_for_component(samples, c, gmm) for c in range(n_comp)])
+
+
+# Return the most likely component in GMM to each sample
+def GMM_component(samples, gmm):
+    return np.argmax(np.transpose(calculate_probabilities(samples, gmm)), axis=1)
+
+
+# Calculate the probability each sample belongs to the GMM
+def calculate_probability_for_GMM(samples, gmm):
+    return np.dot(gmm.weights_, calculate_probabilities(samples, gmm))
+
+
+# Stage 1 in Iterative minimisation according to “GrabCut” document
+def assign_GMM_components_to_pixels(img, bgGMM, fgGMM, bg_pixels, fg_pixels):
+    global rows, columns
+    pixels_components = np.zeros(rows, columns)
+    pixels_components[bg_pixels] = GMM_component(img[bg_pixels], bgGMM)
+    pixels_components[fg_pixels] = GMM_component(img[fg_pixels], fgGMM)
+    return pixels_components
+
+################################################################
+################################################################
+
 
 def calculate_mincut(img, mask, bgGMM, fgGMM):
     # TODO: implement energy (cost) calculation step and mincut
@@ -232,6 +279,47 @@ def calculate_mincut(img, mask, bgGMM, fgGMM):
     energy = 0
 
     edges_n_link, weights_n = calculate_n_links()
+
+    ################################################################
+    flatten_mask = mask.flatten()
+    bg_pixels = (flatten_mask == GC_BGD).nonzero()
+    fg_pixels = (flatten_mask == GC_FGD).nonzero()
+    pr_pixels = ((flatten_mask == GC_PR_BGD) | (flatten_mask == GC_PR_FGD)).nonzero()
+
+    edges = []
+    gc_graph_capacity = []
+    gc_source = rows * columns
+    gc_sink = rows * columns + 1
+
+    # t-links
+    #pr_pixels
+    edges.extend(list(zip([gc_source] * pr_pixels[0].size, pr_pixels[0])))
+    _D = -np.log(calculate_probability_for_GMM(img.reshape(-1, 3)[pr_pixels],bgGMM))
+    gc_graph_capacity.extend(_D.tolist())
+
+    edges.extend(list(zip([gc_sink] * pr_pixels[0].size, pr_pixels[0])))
+    _D = -np.log(calculate_probability_for_GMM(img.reshape(-1, 3)[pr_pixels], fgGMM))
+    gc_graph_capacity.extend(_D.tolist())
+
+    # bg_pixels
+    edges.extend(list(zip([gc_source] * bg_pixels[0].size, bg_pixels[0])))
+    _D = -np.log(calculate_probability_for_GMM(img.reshape(-1, 3)[bg_pixels], bgGMM))
+    gc_graph_capacity.extend(_D.tolist())
+
+    edges.extend(list(zip([gc_sink] * bg_pixels[0].size, bg_pixels[0])))
+    _D = -np.log(calculate_probability_for_GMM(img.reshape(-1, 3)[bg_pixels], fgGMM))
+    gc_graph_capacity.extend(_D.tolist())
+
+    # fg_pixels
+    edges.extend(list(zip([gc_source] * fg_pixels[0].size, fg_pixels[0])))
+    _D = -np.log(calculate_probability_for_GMM(img.reshape(-1, 3)[fg_pixels], bgGMM))
+    gc_graph_capacity.extend(_D.tolist())
+
+    edges.extend(list(zip([gc_sink] * fg_pixels[0].size, fg_pixels[0])))
+    _D = -np.log(calculate_probability_for_GMM(img.reshape(-1, 3)[fg_pixels], fgGMM))
+    gc_graph_capacity.extend(_D.tolist())
+
+    ################################################################
 
     graph = igraph.Graph(columns * rows + 2)
     graph.add_edges(edges_n_link)
