@@ -40,10 +40,12 @@ def grabcut(img, rect, n_iter=5):
     mask[y:y+h, x:x+w] = GC_PR_FGD
     mask[rect[1]+rect[3]//2, rect[0]+rect[2]//2] = GC_FGD
 
-    init_params(img)
+    initialize_params(img)
 
     bgGMM, fgGMM = initalize_GMMs(img, mask)
-    num_iters = 1 #should be 1000
+
+    # TODO: should be 1000, n_iter == num_iter?
+    num_iters = 1
     for i in range(num_iters):
         #Update GMM
         bgGMM, fgGMM = update_GMMs(img, mask, bgGMM, fgGMM)
@@ -59,6 +61,9 @@ def grabcut(img, rect, n_iter=5):
     return mask, bgGMM, fgGMM
 
 
+# The constant beta is chosen to be: (according to “GrabCut” document formula (5))
+# Beta = 1/(2*<(z_m-z_n)^2>)
+# Where <> denotes expectation over an image sample.
 def calculate_beta(left, up, upleft, upright):
     # Calculate sum of squared differences for each subarray
     left_sum = np.sum(np.square(left))
@@ -71,7 +76,14 @@ def calculate_beta(left, up, upleft, upright):
 
     # TODO: !!!!!!to check if we need to add or remove here somthing!!!!!!
     global beta, rows, columns
-    beta = 1 / (2 * total_sum / (4 * columns * rows - 3 * columns - 3 * rows + 2))
+    # Each internal pixel has 4 neighbors (left, up, upleft, upright)
+    num_of_neighbors = 4 * (columns - 2) * (rows - 1)
+    # First column has 2 neighbors (up, upright) and last column has 3 neighbors (left, up, upleft)
+    num_of_neighbors += 5 * (rows - 1)
+    # First row has 1 neighbor (left)
+    num_of_neighbors += columns - 1
+    normalized_total_sum = total_sum / num_of_neighbors
+    beta = 1 / (2 * normalized_total_sum)
 
 
 # Calculate edge weight according to formula (1) in "Implementing GrabCut" document
@@ -97,17 +109,15 @@ def calculate_weights(left, up, upleft, upright):
 def calculate_dist_neighbors_matrix(img):
     # Difference between columns (col i+1 to col i)
     dist_left_pixels = np.diff(img, axis=1)
-
     # Difference between rows (row i+1 to row i)
     dist_up_pixels = np.diff(img, axis=0)
-
-    # Where img.shape[i] - 1 it's for not get out of range index
-    dist_upleft_pixels = img[1:, 1:] - img[:(img.shape[0] - 1), :(img.shape[1] - 1)]
-    dist_upright_pixels = img[1:, :(img.shape[1] - 1)] - img[:(img.shape[0] - 1), 1:]
+    # Difference between diagonal cells
+    dist_upleft_pixels = img[1:, 1:] - img[:-1, :-1]
+    dist_upright_pixels = img[1:, :-1] - img[:-1, 1:]
     return dist_left_pixels, dist_up_pixels, dist_upleft_pixels, dist_upright_pixels
 
 
-def init_params(img):
+def initialize_params(img):
     global rows, columns
     rows = img.shape[0]
     columns = img.shape[1]
@@ -206,9 +216,9 @@ def calculate_n_links():
     # Left neighbor
     add_n_edges(edges_n_link, weights_n, indices_img[:, 1:], indices_img[:, :-1], weight_left)
     # Up neighbor
-    add_n_edges(edges_n_link, weights_n, indices_img[1:, :], indices_img[:- 1, :], weight_up)
+    add_n_edges(edges_n_link, weights_n, indices_img[1:, :], indices_img[:-1, :], weight_up)
     # Upleft neighbor
-    add_n_edges(edges_n_link, weights_n, indices_img[1:, 1:], indices_img[:- 1, :-1], weight_upleft)
+    add_n_edges(edges_n_link, weights_n, indices_img[1:, 1:], indices_img[:-1, :-1], weight_upleft)
     # Upright neighbor
     add_n_edges(edges_n_link, weights_n, indices_img[1:, :-1], indices_img[:-1, 1:], weight_upright)
 
