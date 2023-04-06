@@ -230,9 +230,6 @@ def calculate_n_links():
 
     return edges_n_link, weights_n
 
-################################################################
-################################################################
-
 
 # Calculate the probability each sample belongs to specific component in GMM
 def calculate_probability_for_component(samples, component, gmm):
@@ -260,7 +257,6 @@ def calculate_probability_for_GMM(samples, gmm):
     return np.dot(gmm.weights_, calculate_probabilities(samples, gmm))
 
 
-# Stage 1 in Iterative minimisation according to “GrabCut” document
 def assign_GMM_components_to_pixels(img, bgGMM, fgGMM, bg_pixels, fg_pixels):
     global rows, columns
     pixels_components = np.zeros(rows, columns)
@@ -268,8 +264,49 @@ def assign_GMM_components_to_pixels(img, bgGMM, fgGMM, bg_pixels, fg_pixels):
     pixels_components[fg_pixels] = GMM_component(img[fg_pixels], fgGMM)
     return pixels_components
 
-################################################################
-################################################################
+
+# T-link
+def calculate_t_links(img, mask, bgGMM, fgGMM):
+    global rows, columns
+    edges_t_link = []
+    weights_t = []
+
+    flatten_mask = mask.flatten()
+    bg_pixels = (flatten_mask == GC_BGD).nonzero()
+    fg_pixels = (flatten_mask == GC_FGD).nonzero()
+    pr_pixels = ((flatten_mask == GC_PR_BGD) | (flatten_mask == GC_PR_FGD)).nonzero()
+
+    gc_source = rows * columns
+    gc_sink = rows * columns + 1
+
+    # pr_pixels
+    edges_t_link.extend(list(zip([gc_source] * pr_pixels[0].size, pr_pixels[0])))
+    _D = -np.log(calculate_probability_for_GMM(img.reshape(-1, 3)[pr_pixels], bgGMM))
+    weights_t.extend(_D.tolist())
+
+    edges_t_link.extend(list(zip([gc_sink] * pr_pixels[0].size, pr_pixels[0])))
+    _D = -np.log(calculate_probability_for_GMM(img.reshape(-1, 3)[pr_pixels], fgGMM))
+    weights_t.extend(_D.tolist())
+
+    # bg_pixels
+    edges_t_link.extend(list(zip([gc_source] * bg_pixels[0].size, bg_pixels[0])))
+    _D = -np.log(calculate_probability_for_GMM(img.reshape(-1, 3)[bg_pixels], bgGMM))
+    weights_t.extend(_D.tolist())
+
+    edges_t_link.extend(list(zip([gc_sink] * bg_pixels[0].size, bg_pixels[0])))
+    _D = -np.log(calculate_probability_for_GMM(img.reshape(-1, 3)[bg_pixels], fgGMM))
+    weights_t.extend(_D.tolist())
+
+    # fg_pixels
+    edges_t_link.extend(list(zip([gc_source] * fg_pixels[0].size, fg_pixels[0])))
+    _D = -np.log(calculate_probability_for_GMM(img.reshape(-1, 3)[fg_pixels], bgGMM))
+    weights_t.extend(_D.tolist())
+
+    edges_t_link.extend(list(zip([gc_sink] * fg_pixels[0].size, fg_pixels[0])))
+    _D = -np.log(calculate_probability_for_GMM(img.reshape(-1, 3)[fg_pixels], fgGMM))
+    weights_t.extend(_D.tolist())
+
+    return edges_t_link, weights_t
 
 
 def calculate_mincut(img, mask, bgGMM, fgGMM):
@@ -280,49 +317,11 @@ def calculate_mincut(img, mask, bgGMM, fgGMM):
 
     edges_n_link, weights_n = calculate_n_links()
 
-    ################################################################
-    flatten_mask = mask.flatten()
-    bg_pixels = (flatten_mask == GC_BGD).nonzero()
-    fg_pixels = (flatten_mask == GC_FGD).nonzero()
-    pr_pixels = ((flatten_mask == GC_PR_BGD) | (flatten_mask == GC_PR_FGD)).nonzero()
-
-    edges = []
-    gc_graph_capacity = []
-    gc_source = rows * columns
-    gc_sink = rows * columns + 1
-
-    # t-links
-    #pr_pixels
-    edges.extend(list(zip([gc_source] * pr_pixels[0].size, pr_pixels[0])))
-    _D = -np.log(calculate_probability_for_GMM(img.reshape(-1, 3)[pr_pixels],bgGMM))
-    gc_graph_capacity.extend(_D.tolist())
-
-    edges.extend(list(zip([gc_sink] * pr_pixels[0].size, pr_pixels[0])))
-    _D = -np.log(calculate_probability_for_GMM(img.reshape(-1, 3)[pr_pixels], fgGMM))
-    gc_graph_capacity.extend(_D.tolist())
-
-    # bg_pixels
-    edges.extend(list(zip([gc_source] * bg_pixels[0].size, bg_pixels[0])))
-    _D = -np.log(calculate_probability_for_GMM(img.reshape(-1, 3)[bg_pixels], bgGMM))
-    gc_graph_capacity.extend(_D.tolist())
-
-    edges.extend(list(zip([gc_sink] * bg_pixels[0].size, bg_pixels[0])))
-    _D = -np.log(calculate_probability_for_GMM(img.reshape(-1, 3)[bg_pixels], fgGMM))
-    gc_graph_capacity.extend(_D.tolist())
-
-    # fg_pixels
-    edges.extend(list(zip([gc_source] * fg_pixels[0].size, fg_pixels[0])))
-    _D = -np.log(calculate_probability_for_GMM(img.reshape(-1, 3)[fg_pixels], bgGMM))
-    gc_graph_capacity.extend(_D.tolist())
-
-    edges.extend(list(zip([gc_sink] * fg_pixels[0].size, fg_pixels[0])))
-    _D = -np.log(calculate_probability_for_GMM(img.reshape(-1, 3)[fg_pixels], fgGMM))
-    gc_graph_capacity.extend(_D.tolist())
-
-    ################################################################
+    edges_t_link, weights_t = calculate_t_links(img, mask, bgGMM, fgGMM)
 
     graph = igraph.Graph(columns * rows + 2)
     graph.add_edges(edges_n_link)
+    graph.add_edges(edges_t_link)
 
     return min_cut, energy
 
