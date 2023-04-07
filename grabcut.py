@@ -24,6 +24,7 @@ rows = 0
 columns = 0
 n_comp = 5
 k = 0
+pixels_components = np.empty(0)
 weight_left = np.empty(0)
 weight_up = np.empty(0)
 weight_upleft = np.empty(0)
@@ -47,7 +48,7 @@ def grabcut(img, rect, n_iter=5):
     bgGMM, fgGMM = initalize_GMMs(img, mask)
 
     # TODO: should be 1000, n_iter == num_iter?
-    num_iters = 1
+    num_iters = 1000
     for i in range(num_iters):
         #Update GMM
         bgGMM, fgGMM = update_GMMs(img, mask, bgGMM, fgGMM)
@@ -184,11 +185,17 @@ def update_GMM_covariance_matrix(gmm, n_features, pixels, labels, unique_labels,
             new_covariance_matrix[label] = 0
         else:
             new_covariance_matrix[label] = np.cov(np.transpose(pixels[label == labels]))
+        # We need to avoid singular matrix, because we use the inverse matrix for calculations
+        det = np.linalg.det(new_covariance_matrix[label])
+        while det <= 0:
+            new_covariance_matrix[label] += np.eye(n_features) * 0.01
+            det = np.linalg.det(new_covariance_matrix[label])
     gmm.covariances_ = new_covariance_matrix
 
 
 def update_GMM_fields(pixels, gmm):
     n_features = gmm.n_features_in_
+    # TODO: assign to component instead of using predict according to the document (assign_GMM_components_to_pixels)
     labels = gmm.predict(pixels)
     unique_labels, count = np.unique(labels, return_counts=True)
     # Update weights, means, covariance_matrix
@@ -201,6 +208,7 @@ def update_GMM_fields(pixels, gmm):
 def update_GMMs(img, mask, bgGMM, fgGMM):
     bg_pixels, fg_pixels = split_bg_fg_pixels(mask)
     bg_pixels_for_train, fg_pixels_for_train = get_pixels_for_train(img, bg_pixels, fg_pixels)
+    assign_GMM_components_to_pixels(img, bgGMM, fgGMM, bg_pixels, fg_pixels)
     update_GMM_fields(bg_pixels_for_train, bgGMM)
     update_GMM_fields(fg_pixels_for_train, fgGMM)
     return bgGMM, fgGMM
@@ -264,11 +272,11 @@ def calculate_probability_for_GMM(samples, gmm):
 
 
 def assign_GMM_components_to_pixels(img, bgGMM, fgGMM, bg_pixels, fg_pixels):
-    global rows, columns
-    pixels_components = np.zeros(rows, columns)
-    pixels_components[bg_pixels] = GMM_component(img[bg_pixels], bgGMM)
-    pixels_components[fg_pixels] = GMM_component(img[fg_pixels], fgGMM)
-    return pixels_components
+    global rows, columns, pixels_components
+    pixels_components = np.zeros((rows, columns))
+    bg_pixels_for_train, fg_pixels_for_train = get_pixels_for_train(img, bg_pixels, fg_pixels)
+    pixels_components[bg_pixels] = GMM_component(bg_pixels_for_train, bgGMM)
+    pixels_components[fg_pixels] = GMM_component(fg_pixels_for_train, fgGMM)
 
 
 # T-link
@@ -328,11 +336,11 @@ def calculate_k(weights_n):
     if not k:
         k = 8 * np.max(weights_n)
 
+# def calculate_energy():
 
 def calculate_mincut(img, mask, bgGMM, fgGMM):
     # TODO: implement energy (cost) calculation step and mincut
     global rows, columns, k
-    min_cut = [[], []]
     energy = 0
 
     edges_n_link, weights_n = calculate_n_links()
@@ -345,11 +353,17 @@ def calculate_mincut(img, mask, bgGMM, fgGMM):
 
     weights = weights_n + weights_t
 
+    min_cut = graph.st_mincut(rows * columns, rows * columns + 1, weights)
+
     return min_cut, energy
 
 
 def update_mask(mincut_sets, mask):
     # TODO: implement mask update step
+    global rows, columns
+    pr_pixels = ((mask == GC_PR_BGD) | (mask == GC_PR_FGD)).nonzero()
+    img_pixels = np.arange(rows * columns, dtype=np.uint32).reshape(rows, columns)
+    mask[pr_pixels] = np.where(np.isin(img_pixels[pr_pixels], mincut_sets.partition[0]), GC_PR_BGD, GC_PR_FGD)
     return mask
 
 
