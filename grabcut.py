@@ -23,6 +23,7 @@ beta = 0
 rows = 0
 columns = 0
 n_comp = 5
+k = 0
 weight_left = np.empty(0)
 weight_up = np.empty(0)
 weight_upleft = np.empty(0)
@@ -210,6 +211,7 @@ def add_n_edges(edges_n_link, weights_n, indices_img1, indices_img2, weight):
     slice_img_2 = indices_img2.flatten()
     edges_n_link.extend(list(zip(slice_img_1, slice_img_2)))
     weights_n.extend(list(weight.flatten()))
+    return weight.flatten()
 
 
 # N-link - 4 edges for 4 neighbors: left, up, upleft, upright
@@ -239,7 +241,7 @@ def calculate_probability_for_component(samples, component, gmm):
     if gmm.weights_[component] > 0:
         sub = samples - gmm.means_[component]
         sub_t = np.transpose(sub)
-        power = np.einsum('ij,ij->i', sub, np.transpose(np.dot(np.linalg.inv(gmm.covariances_[component]), sub_t)))
+        power = np.sum(sub * np.transpose(np.dot(np.linalg.inv(gmm.covariances_[component]), sub_t)), axis=1)
         # TODO: in formula 9 in original and formula 2 in document 0.5 is without minus
         res = np.exp(-0.5 * power) / np.sqrt(2 * np.pi) / np.sqrt(np.linalg.det(gmm.covariances_[component]))
     return res
@@ -276,10 +278,9 @@ def assign_GMM_components_to_pixels(img, bgGMM, fgGMM, bg_pixels, fg_pixels):
 # 1.The Background T-link connects the pixel to the Background node.
 # 2.The Foreground T-link connects the pixel to the Foreground node.
 def calculate_t_links(img, mask, bgGMM, fgGMM):
-    global rows, columns
+    global rows, columns, k
     edges_t_link = []
     weights_t = []
-    K = 9*GAMMA # TODO: in document K is max weight - check if change needed
 
     flatten_mask = mask.flatten()
     bg_pixels = (flatten_mask == GC_BGD).nonzero()
@@ -305,12 +306,12 @@ def calculate_t_links(img, mask, bgGMM, fgGMM):
     weights_t.extend([0]*bg_pixels[0].size)
 
     edges_t_link.extend(list(zip([background_node] * bg_pixels[0].size, bg_pixels[0])))
-    weights_t.extend([K]*bg_pixels[0].size)
+    weights_t.extend([k]*bg_pixels[0].size)
 
     # Fg_pixels
     edges_t_link.extend(list(zip([foreground_node] * fg_pixels[0].size, fg_pixels[0])))
     D = -np.log(calculate_probability_for_GMM(np.reshape(img, (grid, 3))[fg_pixels], bgGMM))
-    weights_t.extend([K]*fg_pixels[0].size)
+    weights_t.extend([k]*fg_pixels[0].size)
 
     edges_t_link.extend(list(zip([background_node] * fg_pixels[0].size, fg_pixels[0])))
     weights_t.extend([0]*fg_pixels[0].size)
@@ -318,13 +319,24 @@ def calculate_t_links(img, mask, bgGMM, fgGMM):
     return edges_t_link, weights_t
 
 
+# According to the document "Implementing GrabCut" k is a large constant value
+# calculated as follows to ensure that it is the largest weight in the graph:
+# k = max_m ∑_(n:(m,n)εE) N(m,n)
+# k<= max_((m,n)εE) N(m,n)*8 (Num of neighbors smaller than 8)
+def calculate_k(weights_n):
+    global k
+    if not k:
+        k = 8 * np.max(weights_n)
+
+
 def calculate_mincut(img, mask, bgGMM, fgGMM):
     # TODO: implement energy (cost) calculation step and mincut
-    global rows, columns
+    global rows, columns, k
     min_cut = [[], []]
     energy = 0
 
     edges_n_link, weights_n = calculate_n_links()
+    calculate_k(weights_n)
     edges_t_link, weights_t = calculate_t_links(img, mask, bgGMM, fgGMM)
 
     graph = igraph.Graph(columns * rows + 2)
