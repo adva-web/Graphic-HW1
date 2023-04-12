@@ -208,7 +208,7 @@ def update_GMM_fields(pixels, gmm):
 def update_GMMs(img, mask, bgGMM, fgGMM):
     bg_pixels, fg_pixels = split_bg_fg_pixels(mask)
     bg_pixels_for_train, fg_pixels_for_train = get_pixels_for_train(img, bg_pixels, fg_pixels)
-    assign_GMM_components_to_pixels(img, bgGMM, fgGMM, bg_pixels, fg_pixels)
+    assign_GMM_components_to_pixels(bgGMM, fgGMM, bg_pixels, fg_pixels, bg_pixels_for_train, fg_pixels_for_train)
     update_GMM_fields(bg_pixels_for_train, bgGMM)
     update_GMM_fields(fg_pixels_for_train, fgGMM)
     return bgGMM, fgGMM
@@ -271,10 +271,9 @@ def calculate_probability_for_GMM(samples, gmm):
     return np.dot(gmm.weights_, calculate_probabilities(samples, gmm))
 
 
-def assign_GMM_components_to_pixels(img, bgGMM, fgGMM, bg_pixels, fg_pixels):
+def assign_GMM_components_to_pixels(bgGMM, fgGMM, bg_pixels, fg_pixels, bg_pixels_for_train, fg_pixels_for_train):
     global rows, columns, pixels_components
     pixels_components = np.zeros((rows, columns))
-    bg_pixels_for_train, fg_pixels_for_train = get_pixels_for_train(img, bg_pixels, fg_pixels)
     pixels_components[bg_pixels] = GMM_component(bg_pixels_for_train, bgGMM)
     pixels_components[fg_pixels] = GMM_component(fg_pixels_for_train, fgGMM)
 
