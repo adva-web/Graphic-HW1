@@ -140,7 +140,8 @@ def split_bg_fg_pixels(mask):
     # print(bg_pixels, fg_pixels)
 
 
-def get_pixels_for_train(img, bg_pixels, fg_pixels):
+def get_img_pixels(img, bg_pixels, fg_pixels):
+    # TODO: change names o variables (train)
     return img[bg_pixels], img[fg_pixels]
 
 
@@ -154,7 +155,7 @@ def initalize_GMMs(img, mask, n_components=5):
     global n_comp
     n_comp = n_components
     bg_pixels, fg_pixels = split_bg_fg_pixels(mask)
-    bg_pixels_for_train, fg_pixels_for_train = get_pixels_for_train(img, bg_pixels, fg_pixels)
+    bg_pixels_for_train, fg_pixels_for_train = get_img_pixels(img, bg_pixels, fg_pixels)
     bgGMM = create_GMM(bg_pixels_for_train)
     fgGMM = create_GMM(fg_pixels_for_train)
     return bgGMM, fgGMM
@@ -165,52 +166,51 @@ def update_GMM_weights(gmm, unique_labels, count):
     new_weights = np.zeros(n_comp)
     num_of_samples = np.sum(count)
     for i, label in enumerate(unique_labels):
-        new_weights[label] = count[i]/num_of_samples
+        new_weights[int(label)] = count[i]/num_of_samples
     gmm.weights_ = new_weights
 
 
-def update_GMM_means(gmm, n_features, pixels, labels, unique_labels):
+def update_GMM_means(gmm, n_features, pixels, labels, unique_labels, img_pixels):
     global n_comp
     new_means = np.zeros((n_comp, n_features))
     for label in unique_labels:
-        new_means[label] = np.mean(pixels[label == labels], axis=0)
+        new_means[int(label)] = np.mean(img_pixels[label == labels], axis=0)
     gmm.means_ = new_means
 
 
-def update_GMM_covariance_matrix(gmm, n_features, pixels, labels, unique_labels, count):
+def update_GMM_covariance_matrix(gmm, n_features, pixels, labels, unique_labels, count, img_pixels):
     global n_comp
     new_covariance_matrix = np.zeros((n_comp, n_features, n_features))
     for i, label in enumerate(unique_labels):
         if count[i] <= 1:
-            new_covariance_matrix[label] = 0
+            new_covariance_matrix[int(label)] = 0
         else:
-            new_covariance_matrix[label] = np.cov(np.transpose(pixels[label == labels]))
+            new_covariance_matrix[int(label)] = np.cov(np.transpose(img_pixels[label == labels]))
         # We need to avoid singular matrix, because we use the inverse matrix for calculations
-        det = np.linalg.det(new_covariance_matrix[label])
+        det = np.linalg.det(new_covariance_matrix[int(label)])
         while det <= 0:
-            new_covariance_matrix[label] += np.eye(n_features) * 0.01
-            det = np.linalg.det(new_covariance_matrix[label])
+            new_covariance_matrix[int(label)] += np.eye(n_features) * 0.01
+            det = np.linalg.det(new_covariance_matrix[int(label)])
     gmm.covariances_ = new_covariance_matrix
 
 
-def update_GMM_fields(pixels, gmm):
+def update_GMM_fields(pixels, gmm, img_pixels):
     n_features = gmm.n_features_in_
-    # TODO: assign to component instead of using predict according to the document (assign_GMM_components_to_pixels)
-    labels = gmm.predict(pixels)
+    labels = pixels_components[pixels]
     unique_labels, count = np.unique(labels, return_counts=True)
     # Update weights, means, covariance_matrix
     update_GMM_weights(gmm, unique_labels, count)
-    update_GMM_means(gmm, n_features, pixels, labels, unique_labels)
-    update_GMM_covariance_matrix(gmm, n_features, pixels, labels, unique_labels, count)
+    update_GMM_means(gmm, n_features, pixels, labels, unique_labels, img_pixels)
+    update_GMM_covariance_matrix(gmm, n_features, pixels, labels, unique_labels, count, img_pixels)
 
 
 # Define helper functions for the GrabCut algorithm
 def update_GMMs(img, mask, bgGMM, fgGMM):
     bg_pixels, fg_pixels = split_bg_fg_pixels(mask)
-    bg_pixels_for_train, fg_pixels_for_train = get_pixels_for_train(img, bg_pixels, fg_pixels)
+    bg_pixels_for_train, fg_pixels_for_train = get_img_pixels(img, bg_pixels, fg_pixels)
     assign_GMM_components_to_pixels(bgGMM, fgGMM, bg_pixels, fg_pixels, bg_pixels_for_train, fg_pixels_for_train)
-    update_GMM_fields(bg_pixels_for_train, bgGMM)
-    update_GMM_fields(fg_pixels_for_train, fgGMM)
+    update_GMM_fields(bg_pixels, bgGMM, bg_pixels_for_train)
+    update_GMM_fields(fg_pixels, fgGMM, fg_pixels_for_train)
     return bgGMM, fgGMM
 
 
@@ -362,7 +362,7 @@ def update_mask(mincut_sets, mask):
     global rows, columns
     pr_pixels = ((mask == GC_PR_BGD) | (mask == GC_PR_FGD)).nonzero()
     img_pixels = np.arange(rows * columns, dtype=np.uint32).reshape(rows, columns)
-    mask[pr_pixels] = np.where(np.isin(img_pixels[pr_pixels], mincut_sets.partition[0]), GC_PR_BGD, GC_PR_FGD)
+    mask[pr_pixels] = np.where(np.isin(img_pixels[pr_pixels], mincut_sets.partition[0]), GC_PR_FGD, GC_PR_BGD)
     return mask
 
 
