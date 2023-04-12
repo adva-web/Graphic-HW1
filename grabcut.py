@@ -182,15 +182,16 @@ def update_GMM_covariance_matrix(gmm, n_features, pixels, labels, unique_labels,
     global n_comp
     new_covariance_matrix = np.zeros((n_comp, n_features, n_features))
     for i, label in enumerate(unique_labels):
+        label_index = int(label)
         if count[i] <= 1:
-            new_covariance_matrix[int(label)] = 0
+            new_covariance_matrix[label_index] = 0
         else:
-            new_covariance_matrix[int(label)] = np.cov(np.transpose(img_pixels[label == labels]))
+            new_covariance_matrix[label_index] = np.cov(np.transpose(img_pixels[label == labels]))
         # We need to avoid singular matrix, because we use the inverse matrix for calculations
-        det = np.linalg.det(new_covariance_matrix[int(label)])
+        det = np.linalg.det(new_covariance_matrix[label_index])
         while det <= 0:
-            new_covariance_matrix[int(label)] += np.eye(n_features) * 0.01
-            det = np.linalg.det(new_covariance_matrix[int(label)])
+            new_covariance_matrix[label_index] += np.eye(n_features) * 0.01
+            det = np.linalg.det(new_covariance_matrix[label_index])
     gmm.covariances_ = new_covariance_matrix
 
 
@@ -207,10 +208,10 @@ def update_GMM_fields(pixels, gmm, img_pixels):
 # Define helper functions for the GrabCut algorithm
 def update_GMMs(img, mask, bgGMM, fgGMM):
     bg_pixels, fg_pixels = split_bg_fg_pixels(mask)
-    bg_pixels_for_train, fg_pixels_for_train = get_img_pixels(img, bg_pixels, fg_pixels)
-    assign_GMM_components_to_pixels(bgGMM, fgGMM, bg_pixels, fg_pixels, bg_pixels_for_train, fg_pixels_for_train)
-    update_GMM_fields(bg_pixels, bgGMM, bg_pixels_for_train)
-    update_GMM_fields(fg_pixels, fgGMM, fg_pixels_for_train)
+    bg_img_pixels, fg_img_pixels = get_img_pixels(img, bg_pixels, fg_pixels)
+    assign_GMM_components_to_pixels(bgGMM, fgGMM, bg_pixels, fg_pixels, bg_img_pixels, fg_img_pixels)
+    update_GMM_fields(bg_pixels, bgGMM, bg_img_pixels)
+    update_GMM_fields(fg_pixels, fgGMM, fg_img_pixels)
     return bgGMM, fgGMM
 
 
@@ -271,11 +272,11 @@ def calculate_probability_for_GMM(samples, gmm):
     return np.dot(gmm.weights_, calculate_probabilities(samples, gmm))
 
 
-def assign_GMM_components_to_pixels(bgGMM, fgGMM, bg_pixels, fg_pixels, bg_pixels_for_train, fg_pixels_for_train):
+def assign_GMM_components_to_pixels(bgGMM, fgGMM, bg_pixels, fg_pixels, bg_img_pixels, fg_img_pixels):
     global rows, columns, pixels_components
     pixels_components = np.zeros((rows, columns))
-    pixels_components[bg_pixels] = GMM_component(bg_pixels_for_train, bgGMM)
-    pixels_components[fg_pixels] = GMM_component(fg_pixels_for_train, fgGMM)
+    pixels_components[bg_pixels] = GMM_component(bg_img_pixels, bgGMM)
+    pixels_components[fg_pixels] = GMM_component(fg_img_pixels, fgGMM)
 
 
 # T-link
