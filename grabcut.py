@@ -244,15 +244,15 @@ def calculate_n_links():
 
 # Calculate the probability each sample belongs to specific component in GMM
 # According to formula (2) in "Implementing GrabCut" document
+# We used Gaussian PDF distribution: (1 / (std * (2 * phi)^0.5) ) * exp( -0.5 * ((x - mean)^2 / covariance ))
 def calculate_probability_for_component(samples, component, gmm):
-    res = np.zeros(samples.shape[0])
+    pdf = np.zeros(samples.shape[0])
     if gmm.weights_[component] > 0:
         sub = samples - gmm.means_[component]
         sub_t = np.transpose(sub)
         power = np.sum(sub * np.transpose(np.dot(np.linalg.inv(gmm.covariances_[component]), sub_t)), axis=1)
-        # TODO: in formula 9 in original and formula 2 in document 0.5 is without minus
-        res = np.exp(-0.5 * power) / np.sqrt(2 * np.pi) / np.sqrt(np.linalg.det(gmm.covariances_[component]))
-    return res
+        pdf = np.exp(-0.5 * power) / (np.sqrt(2 * np.pi) * np.sqrt(np.linalg.det(gmm.covariances_[component])))
+    return pdf
 
 
 # For each sample return the probability to belong each component in GMM
