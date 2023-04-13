@@ -50,18 +50,21 @@ def grabcut(img, rect, n_iter=5):
     bgGMM, fgGMM = initalize_GMMs(img, mask)
 
     # TODO: should be 1000, n_iter == num_iter?
-    num_iters = 10
+    num_iters = 20
     for i in range(num_iters):
         #Update GMM
         bgGMM, fgGMM = update_GMMs(img, mask, bgGMM, fgGMM)
 
         mincut_sets, energy = calculate_mincut(img, mask, bgGMM, fgGMM)
-        print(energy)
-        print(mincut_sets.partition[0])
+        print("energy", energy)
+        old_mask = mask
         mask = update_mask(mincut_sets, mask)
+        print(np.sum(mask == old_mask))
 
         if check_convergence(energy):
             break
+
+    mask = final_mask(mask)
 
     # Return the final mask and the GMMs
     return mask, bgGMM, fgGMM
@@ -332,11 +335,11 @@ def calculate_t_links(img, mask, bgGMM, fgGMM):
 # According to the document "Implementing GrabCut" k is a large constant value
 # calculated as follows to ensure that it is the largest weight in the graph:
 # k = max_m ∑_(n:(m,n)εE) N(m,n)
-# k<= max_((m,n)εE) N(m,n)*8 (Num of neighbors smaller than 8)
+# k < max_((m,n)εE) N(m,n)*9 (The number of neighbors is at most 8)
 def calculate_k(weights_n):
     global k
     if not k:
-        k = 8 * np.max(weights_n)
+        k = 9 * np.max(weights_n)
 
 
 def calculate_energy(img, mask, bgGMM, fgGMM):
@@ -378,15 +381,43 @@ def calculate_mincut(img, mask, bgGMM, fgGMM):
     min_cut = graph.st_mincut(rows * columns, rows * columns + 1, weights)
     energy = calculate_energy(img, mask, bgGMM, fgGMM)
 
-    return min_cut, energy
+    return min_cut.partition, energy
 
 
 def update_mask(mincut_sets, mask):
     # TODO: implement mask update step
     global rows, columns
-    pr_pixels = ((mask == GC_PR_BGD) | (mask == GC_PR_FGD)).nonzero()
-    img_pixels = np.arange(rows * columns, dtype=np.uint32).reshape(rows, columns)
-    mask[pr_pixels] = np.where(np.isin(img_pixels[pr_pixels], mincut_sets.partition[0]), GC_PR_FGD, GC_PR_BGD)
+    new_mask = mask.copy().flatten()
+    # counter = 0
+    # for r in range(rows):
+    #     for c in range(columns):
+    #         if mask[r][c] == GC_PR_BGD or mask[r][c] == GC_PR_FGD:
+    #             if counter in mincut_sets.partition[0]:
+    #                 new_mask[r][c] = GC_PR_FGD
+    #             else:
+    #                 new_mask[r][c] = GC_PR_BGD
+    #         counter += 1
+    # print("start")
+    pr_pixels = ((new_mask == GC_PR_BGD) | (new_mask == GC_PR_FGD)).nonzero()
+    fg_pr_pixels = np.intersect1d(pr_pixels[0], mincut_sets[0])
+    bg_pr_pixels = np.intersect1d(pr_pixels[0], mincut_sets[1])
+    # print(pr_pixels[0].shape)
+    # print(fg_pr_pixels.shape)
+    np.put(new_mask, fg_pr_pixels, [GC_PR_FGD] * len(fg_pr_pixels))
+    np.put(new_mask, bg_pr_pixels, [GC_PR_BGD] * len(bg_pr_pixels))
+    # pr_pixels = ((mask == GC_PR_BGD) | (mask == GC_PR_FGD)).nonzero()
+    # img_pixels = np.arange(rows * columns, dtype=np.uint32).reshape(rows, columns)
+    # print(np.sum(mask[pr_pixels] == np.where(np.isin(img_pixels[pr_pixels], mincut_sets.partition[0]), GC_PR_FGD, GC_PR_BGD)))
+    # mask[pr_pixels] = np.where(np.isin(img_pixels[pr_pixels], mincut_sets.partition[0]), GC_PR_FGD, GC_PR_BGD)
+    # print(np.sum(mask[pr_pixels] == np.where(np.isin(img_pixels[pr_pixels], mincut_sets.partition[0]), GC_PR_FGD, GC_PR_BGD)))
+    return new_mask.reshape(rows, columns)
+
+
+def final_mask(mask):
+    bg_pr_pixels = (mask == GC_PR_BGD).nonzero()
+    fg_pr_pixels = (mask == GC_PR_FGD).nonzero()
+    mask[bg_pr_pixels] = GC_BGD
+    mask[fg_pr_pixels] = GC_FGD
     return mask
 
 
