@@ -193,12 +193,6 @@ def update_GMM_covariance_matrix(gmm, n_features, labels, unique_labels, count, 
             new_covariance_matrix[label_index] = 0
         else:
             new_covariance_matrix[label_index] = np.cov(np.transpose(img_pixels[label == labels]))
-        # We need to avoid singular matrix, because we use the inverse matrix for calculations
-        det = np.linalg.det(new_covariance_matrix[label_index])
-        while det <= 0:
-            new_covariance_matrix[label_index] += np.eye(n_features) * 0.01
-            det = np.linalg.det(new_covariance_matrix[label_index])
-    # print("covariance", np.sum(new_covariance_matrix != gmm.covariances_))
     gmm.covariances_ = new_covariance_matrix
 
 
@@ -256,7 +250,7 @@ def calculate_probability_for_component(samples, component, gmm):
     if gmm.weights_[component] > 0:
         sub = samples - gmm.means_[component]
         sub_t = np.transpose(sub)
-        power = np.sum(sub * np.transpose(np.dot(np.linalg.inv(gmm.covariances_[component]), sub_t)), axis=1)
+        power = np.sum(sub * np.transpose(np.dot(np.linalg.pinv(gmm.covariances_[component]), sub_t)), axis=1)
         pdf = np.exp(-0.5 * power) / (np.sqrt(2 * np.pi) * np.sqrt(np.linalg.det(gmm.covariances_[component])))
     return pdf
 
