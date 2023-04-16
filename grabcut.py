@@ -11,7 +11,6 @@ GC_BGD = 0 # Hard bg pixel
 GC_FGD = 1 # Hard fg pixel, will not be used
 GC_PR_BGD = 2 # Soft bg pixel
 GC_PR_FGD = 3 # Soft fg pixel
-
 # The constant gamma was obtained as 50 by optimizing performance against ground truth over a training set of 15 images.
 # P.2 “GrabCut”
 GAMMA = 50
@@ -45,7 +44,7 @@ def grabcut(img, rect, n_iter=5):
 
     bgGMM, fgGMM = initalize_GMMs(img, mask, 1)
 
-    # TODO: should be 1000, n_iter == num_iter?
+    # TODO: should be 1000, n_iter == num_iter? and remove print energy
     num_iters = 4
     for i in range(num_iters):
         #Update GMM
@@ -53,9 +52,7 @@ def grabcut(img, rect, n_iter=5):
 
         mincut_sets, energy = calculate_mincut(img, mask, bgGMM, fgGMM)
         print("energy", energy)
-        # old_mask = mask
         mask = update_mask(mincut_sets, mask)
-        # print(np.sum(mask != old_mask))
 
         if check_convergence(energy):
             break
@@ -140,10 +137,6 @@ def split_bg_fg_pixels(mask):
     bg_pixels = ((mask == GC_BGD) | (mask == GC_PR_BGD)).nonzero()
     fg_pixels = ((mask == GC_FGD) | (mask == GC_PR_FGD)).nonzero()
     return bg_pixels, fg_pixels
-    # for debug - better view:
-    # bg_pixels = np.transpose((np.logical_or(mask == GC_BGD, mask == GC_PR_BGD)).nonzero())
-    # fgPixels = np.transpose((np.logical_or(mask == GC_FGD, mask == GC_PR_FGD)).nonzero())
-    # print(bg_pixels, fg_pixels)
 
 
 def get_img_pixels(img, bg_pixels, fg_pixels):
@@ -156,7 +149,6 @@ def create_GMM(pixels_for_train):
 
 
 def initalize_GMMs(img, mask, n_components=5):
-    # TODO: implement initalize_GMMs --> check if GMM default function is okay
     global n_comp
     n_comp = n_components
     bg_pixels, fg_pixels = split_bg_fg_pixels(mask)
@@ -180,7 +172,6 @@ def update_GMM_means(gmm, n_features, labels, unique_labels, img_pixels):
     new_means = np.zeros((n_comp, n_features))
     for label in unique_labels:
         new_means[int(label)] = np.mean(img_pixels[label == labels], axis=0)
-    # print("means", np.sum(new_means != gmm.means_))
     gmm.means_ = new_means
 
 
@@ -273,12 +264,9 @@ def calculate_probability_for_GMM(samples, gmm):
 
 def assign_GMM_components_to_pixels(bgGMM, fgGMM, bg_pixels, fg_pixels, bg_img_pixels, fg_img_pixels):
     global rows, columns, pixels_components
-    # last = pixels_components.copy()
     pixels_components = np.zeros((rows, columns))
-    # print(bg_pixels[0].shape, GMM_component(bg_img_pixels, bgGMM).shape)
     pixels_components[bg_pixels] = GMM_component(bg_img_pixels, bgGMM)
     pixels_components[fg_pixels] = GMM_component(fg_img_pixels, fgGMM)
-    # print(np.sum(last != pixels_components))
 
 
 # T-link
@@ -288,6 +276,7 @@ def assign_GMM_components_to_pixels(bgGMM, fgGMM, bg_pixels, fg_pixels, bg_img_p
 # 1.The Background T-link connects the pixel to the Background node.
 # 2.The Foreground T-link connects the pixel to the Foreground node.
 def calculate_t_links(img, mask, bgGMM, fgGMM):
+    # TODO: consider adding help functions
     global rows, columns, k
     edges_t_link = []
     weights_t = []
@@ -339,7 +328,6 @@ def calculate_k(weights_n):
 
 
 def calculate_mincut(img, mask, bgGMM, fgGMM):
-    # TODO: implement energy (cost) calculation step and mincut
     global rows, columns, k, edges_n_link, weights_n
 
     edges_t_link, weights_t = calculate_t_links(img, mask, bgGMM, fgGMM)
@@ -355,23 +343,13 @@ def calculate_mincut(img, mask, bgGMM, fgGMM):
 
 
 def update_mask(mincut_sets, mask):
-    # TODO: implement mask update step - check what the faster way
     global rows, columns
-    #############
-    # new_mask = mask.copy().flatten()
-    # pr_pixels = ((new_mask == GC_PR_BGD) | (new_mask == GC_PR_FGD)).nonzero()
-    # fg_pr_pixels = np.intersect1d(pr_pixels[0], mincut_sets[0])
-    # bg_pr_pixels = np.intersect1d(pr_pixels[0], mincut_sets[1])
-    # # print(pr_pixels[0].shape)
-    # # print(fg_pr_pixels.shape)
-    # np.put(new_mask, fg_pr_pixels, [GC_PR_FGD] * len(fg_pr_pixels))
-    # np.put(new_mask, bg_pr_pixels, [GC_PR_BGD] * len(bg_pr_pixels))
-    ##################
+    # Find the pixels that belong to the probable foreground or background regions
     pr_pixels = ((mask == GC_PR_BGD) | (mask == GC_PR_FGD)).nonzero()
-    img_pixels = np.arange(rows * columns, dtype=np.uint32).reshape(rows, columns)
-    # print(np.sum(mask[pr_pixels] == np.where(np.isin(img_pixels[pr_pixels], mincut_sets.partition[0]), GC_PR_FGD, GC_PR_BGD)))
-    mask[pr_pixels] = np.where(np.isin(img_pixels[pr_pixels], mincut_sets[0]), GC_PR_FGD, GC_PR_BGD)
-    # print(np.sum(mask[pr_pixels] == np.where(np.isin(img_pixels[pr_pixels], mincut_sets.partition[0]), GC_PR_FGD, GC_PR_BGD)))
+    # Create an array of pixel indices
+    img_indices = np.ravel_multi_index(pr_pixels, (rows, columns))
+    # Update the mask based on the minimum cut sets
+    mask[pr_pixels] = np.where(np.isin(img_indices, mincut_sets[0]), GC_PR_FGD, GC_PR_BGD)
     # return new_mask.reshape(rows, columns)
     return mask
 
