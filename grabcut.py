@@ -3,6 +3,7 @@ import cv2
 import argparse
 import igraph
 from sklearn.mixture import GaussianMixture as GMM
+import time
 
 #############
 # CONSTANTS #
@@ -23,9 +24,14 @@ rows = 0
 columns = 0
 n_comp = 5
 k = 0
+# Assignment of pixels to GMM components
 pixels_components = np.empty(0)
+# N-links in graph
 edges_n_link = []
 weights_n = []
+# T-links in graph
+edges_t_link = []
+weights_t = []
 
 
 # Define the GrabCut algorithm function
@@ -42,19 +48,21 @@ def grabcut(img, rect, n_iter=5):
 
     initialize_params(img)
 
-    bgGMM, fgGMM = initalize_GMMs(img, mask, 1)
+    bgGMM, fgGMM = initalize_GMMs(img, mask)
 
     # TODO: should be 1000, n_iter == num_iter? and remove print energy
-    num_iters = 4
+    num_iters = 5
+    energy = 0
     for i in range(num_iters):
         #Update GMM
         bgGMM, fgGMM = update_GMMs(img, mask, bgGMM, fgGMM)
 
+        prev_energy = energy
         mincut_sets, energy = calculate_mincut(img, mask, bgGMM, fgGMM)
         print("energy", energy)
         mask = update_mask(mincut_sets, mask)
 
-        if check_convergence(energy):
+        if check_convergence(energy, prev_energy):
             break
 
     mask = final_mask(mask)
@@ -269,17 +277,27 @@ def assign_GMM_components_to_pixels(bgGMM, fgGMM, bg_pixels, fg_pixels, bg_img_p
     pixels_components[fg_pixels] = GMM_component(fg_img_pixels, fgGMM)
 
 
+def trimap_bg_fg(node, pixels, edge_weight):
+    edges_t_link.extend(list(zip([node] * pixels.size, pixels)))
+    weights_t.extend([edge_weight] * pixels.size)
+
+
+def trimap_unknown(grid, node, pixels, gmm):
+    edges_t_link.extend(list(zip([node] * pixels.size, pixels)))
+    # D is according to formula (2) in "Implementing GrabCut" document
+    D = -np.log(calculate_probability_for_GMM(np.reshape(img, (grid, 3))[pixels], gmm))
+    weights_t.extend(D.tolist())
+
+
 # T-link
 # “t-links” represent global information about color distribution in the foreground and the background of the image.
 # A t-link weight shows how well a pixel fits the background/foreground model.
 # There are two T-links for each pixel:
 # 1.The Background T-link connects the pixel to the Background node.
 # 2.The Foreground T-link connects the pixel to the Foreground node.
-def calculate_t_links(img, mask, bgGMM, fgGMM):
+def calculate_t_links(mask, bgGMM, fgGMM):
     # TODO: consider adding help functions
-    global rows, columns, k
-    edges_t_link = []
-    weights_t = []
+    global rows, columns, k, edges_t_link, weights_t
 
     flatten_mask = mask.flatten()
     bg_pixels = (flatten_mask == GC_BGD).nonzero()[0]
@@ -290,31 +308,20 @@ def calculate_t_links(img, mask, bgGMM, fgGMM):
     foreground_node = grid
     background_node = grid + 1
 
-    # According to formula (2) in "Implementing GrabCut" document
-    # Pr_pixels
-    edges_t_link.extend(list(zip([foreground_node] * pr_pixels.size, pr_pixels)))
-    D = -np.log(calculate_probability_for_GMM(np.reshape(img, (grid, 3))[pr_pixels], bgGMM))
-    weights_t.extend(D.tolist())
-
-    edges_t_link.extend(list(zip([background_node] * pr_pixels.size, pr_pixels)))
-    D = -np.log(calculate_probability_for_GMM(np.reshape(img, (grid, 3))[pr_pixels], fgGMM))
-    weights_t.extend(D.tolist())
+    edges_t_link = []
+    weights_t = []
 
     # Bg_pixels
-    edges_t_link.extend(list(zip([foreground_node] * bg_pixels.size, bg_pixels)))
-    weights_t.extend([0]*bg_pixels.size)
-
-    edges_t_link.extend(list(zip([background_node] * bg_pixels.size, bg_pixels)))
-    weights_t.extend([k]*bg_pixels.size)
+    trimap_bg_fg(foreground_node, bg_pixels, 0)
+    trimap_bg_fg(background_node, bg_pixels, k)
 
     # Fg_pixels
-    edges_t_link.extend(list(zip([foreground_node] * fg_pixels.size, fg_pixels)))
-    weights_t.extend([k]*fg_pixels.size)
+    trimap_bg_fg(foreground_node, fg_pixels, k)
+    trimap_bg_fg(background_node, fg_pixels, 0)
 
-    edges_t_link.extend(list(zip([background_node] * fg_pixels.size, fg_pixels)))
-    weights_t.extend([0]*fg_pixels.size)
-
-    return edges_t_link, weights_t
+    # Pr_pixels
+    trimap_unknown(grid, foreground_node, pr_pixels, bgGMM)
+    trimap_unknown(grid, background_node, pr_pixels, fgGMM)
 
 
 # According to the document "Implementing GrabCut" k is a large constant value
@@ -328,9 +335,9 @@ def calculate_k(weights_n):
 
 
 def calculate_mincut(img, mask, bgGMM, fgGMM):
-    global rows, columns, k, edges_n_link, weights_n
+    global rows, columns, k, edges_n_link, weights_n, edges_t_link, weights_t
 
-    edges_t_link, weights_t = calculate_t_links(img, mask, bgGMM, fgGMM)
+    calculate_t_links(mask, bgGMM, fgGMM)
 
     graph = igraph.Graph(columns * rows + 2)
     graph.add_edges(edges_n_link)
@@ -361,21 +368,41 @@ def final_mask(mask):
     return mask
 
 
-def check_convergence(energy):
+# Check convergence according to the energy delta
+def check_convergence(energy, prev_energy):
     # TODO: implement convergence check
     convergence = False
+    res = np.abs((prev_energy-energy)/energy)
+    print("diff", res)
+    if res < np.finfo(np.float32).eps:
+        convergence = True
     return convergence
 
 
+# Given two binary images, compute the accuracy and Jaccard similarity.
+#     predicted_mask: The predicted binary mask.
+#     gt_mask: The ground truth binary mask.
 def cal_metric(predicted_mask, gt_mask):
-    # TODO: implement metric calculation
+    # Compute the number of pixels that are correctly labeled
+    correct_pixels = np.sum(predicted_mask == gt_mask)
+    # Compute the total number of pixels in the image
+    total_pixels = np.prod(predicted_mask.shape)
+    # Compute the accuracy
+    accuracy = correct_pixels / total_pixels
 
-    return 100, 100
+    # Compute the intersection between the predicted and ground truth masks
+    intersection = np.sum(predicted_mask & gt_mask)
+    # Compute the union between the predicted and ground truth masks
+    union = np.sum(predicted_mask | gt_mask)
+    # Compute the Jaccard similarity
+    jaccard = intersection / union
+
+    return accuracy, jaccard
 
 
 def parse():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--input_name', type=str, default='banana1', help='name of image from the course files')
+    parser.add_argument('--input_name', type=str, default='banana2', help='name of image from the course files')
     parser.add_argument('--eval', type=int, default=1, help='calculate the metrics')
     parser.add_argument('--input_img_path', type=str, default='', help='if you wish to use your own img_path')
     parser.add_argument('--use_file_rect', type=int, default=1, help='Read rect from course files')
@@ -384,6 +411,7 @@ def parse():
 
 
 if __name__ == '__main__':
+    start_time = time.time()
     # Load an example image and define a bounding box around the object of interest
     args = parse()
 
@@ -416,5 +444,7 @@ if __name__ == '__main__':
     cv2.imshow('Original Image', img)
     cv2.imshow('GrabCut Mask', 255 * mask)
     cv2.imshow('GrabCut Result', img_cut)
+    elapsed_time = time.time() - start_time
+    print("Elapsed time: {:.2f} seconds".format(elapsed_time))
     cv2.waitKey(0)
     cv2.destroyAllWindows()
