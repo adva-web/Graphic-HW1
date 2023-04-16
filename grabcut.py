@@ -350,7 +350,6 @@ def update_mask(mincut_sets, mask):
     img_indices = np.ravel_multi_index(pr_pixels, (rows, columns))
     # Update the mask based on the minimum cut sets
     mask[pr_pixels] = np.where(np.isin(img_indices, mincut_sets[0]), GC_PR_FGD, GC_PR_BGD)
-    # return new_mask.reshape(rows, columns)
     return mask
 
 
