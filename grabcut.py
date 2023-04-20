@@ -48,7 +48,7 @@ def grabcut(img, rect, n_iter=5):
 
     initialize_params(img)
 
-    bgGMM, fgGMM = initalize_GMMs(img, mask)
+    bgGMM, fgGMM = initalize_GMMs(img, mask, 2)
 
     # TODO: should be 1000, n_iter == num_iter? and remove print energy
     num_iters = 5
@@ -58,7 +58,7 @@ def grabcut(img, rect, n_iter=5):
         bgGMM, fgGMM = update_GMMs(img, mask, bgGMM, fgGMM)
 
         prev_energy = energy
-        mincut_sets, energy = calculate_mincut(img, mask, bgGMM, fgGMM)
+        mincut_sets, energy = calculate_mincut(mask, bgGMM, fgGMM)
         print("energy", energy)
         mask = update_mask(mincut_sets, mask)
 
@@ -334,7 +334,7 @@ def calculate_k(weights_n):
         k = 8 * np.max(weights_n)
 
 
-def calculate_mincut(img, mask, bgGMM, fgGMM):
+def calculate_mincut(mask, bgGMM, fgGMM):
     global rows, columns, k, edges_n_link, weights_n, edges_t_link, weights_t
 
     calculate_t_links(mask, bgGMM, fgGMM)
@@ -402,7 +402,7 @@ def cal_metric(predicted_mask, gt_mask):
 
 def parse():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--input_name', type=str, default='banana2', help='name of image from the course files')
+    parser.add_argument('--input_name', type=str, default='bush', help='name of image from the course files')
     parser.add_argument('--eval', type=int, default=1, help='calculate the metrics')
     parser.add_argument('--input_img_path', type=str, default='', help='if you wish to use your own img_path')
     parser.add_argument('--use_file_rect', type=int, default=1, help='Read rect from course files')
@@ -427,9 +427,10 @@ if __name__ == '__main__':
 
 
     img = cv2.imread(input_path)
+    simple_img = np.asarray(img, dtype=np.float64)
 
     # Run the GrabCut algorithm on the image and bounding box
-    mask, bgGMM, fgGMM = grabcut(img, rect)
+    mask, bgGMM, fgGMM = grabcut(simple_img, rect)
     mask = cv2.threshold(mask, 0, 1, cv2.THRESH_BINARY)[1]
 
     # Print metrics only if requested (valid only for course files)
