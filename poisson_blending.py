@@ -72,13 +72,13 @@ def calculate_laplacian(tgt_gradient):
 def calculate_laplacian_matrix(tgt_height, tgt_width):
     # TODO: maybe should multiply by -1, in medium tgt_width should be tgt_height
     fl = scipy.sparse.lil_matrix((tgt_height, tgt_height))
-    fl.setdiag(-1, -1)
     fl.setdiag(4)
+    fl.setdiag(-1, -1)
     fl.setdiag(-1, 1)
     A = scipy.sparse.block_diag([fl] * tgt_width).tolil()
     A.setdiag(-1, 1 * tgt_height)
     A.setdiag(-1, -1 * tgt_height)
-    return A*(-1)
+    return A
 
 
 def poisson_blend(im_src, im_tgt, im_mask, center):
@@ -101,7 +101,7 @@ def poisson_blend(im_src, im_tgt, im_mask, center):
         for rgb in range(im_tgt.shape[2]):
             src_gradient_norm = calculate_norm(src_gradient, row, col, rgb)
             tgt_gradient_norm = calculate_norm(tgt_gradient, row, col, rgb)
-            if tgt_gradient_norm > src_gradient_norm:
+            if tgt_gradient_norm < src_gradient_norm:
                 tgt_gradient[0][row, col, rgb] = src_gradient[0][row, col, rgb]
                 tgt_gradient[1][row, col, rgb] = src_gradient[1][row, col, rgb]
 
