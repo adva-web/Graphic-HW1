@@ -425,7 +425,6 @@ if __name__ == '__main__':
     else:
         rect = tuple(map(int,args.rect.split(',')))
 
-
     img = cv2.imread(input_path)
     simple_img = np.asarray(img, dtype=np.float64)
 
