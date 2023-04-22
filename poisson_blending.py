@@ -54,7 +54,9 @@ def laplacian_matrix(n, m):
 def poisson_blend(source, target, mask, center):
     y_range, x_range = target.shape[:-1]  # height, width
 
-    shift = center[0] - int(source.shape[0]/2), center[1] - int(source.shape[1]/2)
+    offset_rows = center[1] - im_mask.shape[0] // 2
+    offset_cols = center[0] - im_mask.shape[1] // 2
+    shift = offset_rows, offset_cols
 
     M = np.float32([[1, 0, shift[0]],
                     [0, 1, shift[1]]])
