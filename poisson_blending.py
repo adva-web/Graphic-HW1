@@ -5,8 +5,6 @@ import scipy.sparse
 from scipy.sparse.linalg import spsolve
 import argparse
 
-remove_buffer = False
-
 
 # pad the image to the size of the target image
 def add_paddind(im_tgt, img):
@@ -17,123 +15,87 @@ def add_paddind(im_tgt, img):
     return cv2.copyMakeBorder(img, pad_top, pad_bottom, pad_left, pad_right, cv2.BORDER_CONSTANT, value=0)
 
 
-#TODO: if this function is not useful remove it
-def img_translation(im_src, im_tgt, im_mask, center):
-    global remove_buffer
-
-    # calculate row and column offsets for translation
-    offset_rows = center[1] - im_mask.shape[0] // 2
-    offset_cols = center[0] - im_mask.shape[1] // 2
-
-    # roll the images by the row and column offsets
-    im_mask = np.roll(im_mask, (offset_rows, offset_cols), axis=(0, 1))
-    im_src = np.roll(im_src, (offset_rows, offset_cols), axis=(0, 1))
-    im_tgt = np.roll(im_tgt, (offset_rows, offset_cols), axis=(0, 1))
-
-    # add a 1-pixel symmetric buffer if necessary
-    if np.any(im_mask[0, :] == 255) or np.any(im_mask[-1, :] == 255) or \
-            np.any(im_mask[:, 0] == 255) or np.any(im_mask[:, -1] == 255):
-        im_mask = cv2.copyMakeBorder(im_mask, 1, 1, 1, 1, cv2.BORDER_REFLECT)
-        im_src = cv2.copyMakeBorder(im_src, 1, 1, 1, 1, cv2.BORDER_REFLECT)
-        im_tgt = cv2.copyMakeBorder(im_tgt, 1, 1, 1, 1, cv2.BORDER_REFLECT)
-        remove_buffer = True
-
-    return im_src, im_tgt, im_mask
+def get_gradient(img):
+    kernel_x = np.array([[0, 0, 0],
+                         [0, -1, 1],
+                         [0, 0, 0]])
+    kernel_y = np.array([[0, 0, 0],
+                         [0, -1, 0],
+                         [0, 1, 0]])
+    grad_x = cv2.filter2D(img, cv2.CV_32F, kernel_x)
+    grad_y = cv2.filter2D(img, cv2.CV_32F, kernel_y)
+    return grad_x, grad_y
 
 
-def calculate_gradient(img):
-    rows_kernel = np.array([[0, 0, 0],
-                            [0, -1, 1],
-                            [0, 0, 0]])
-    cols_kernel = np.array([[0, 0, 0],
-                            [0, -1, 0],
-                            [0, 1, 0]])
-    rows_gradient = cv2.filter2D(img, cv2.CV_32F, rows_kernel, cv2.BORDER_REFLECT)
-    cols_gradient = cv2.filter2D(img, cv2.CV_32F, cols_kernel, cv2.BORDER_REFLECT)
-    return rows_gradient, cols_gradient
+def get_laplacian(grad_x, grad_y):
+    kernel_x = np.array([[0, 0, 0],
+                         [-1, 1, 0],
+                         [0, 0, 0]])
+    kernel_y = np.array([[0, -1, 0],
+                         [0, 1, 0],
+                         [0, 0, 0]])
+    lap_x = cv2.filter2D(grad_x, cv2.CV_32F, kernel_x)
+    lap_y = cv2.filter2D(grad_y, cv2.CV_32F, kernel_y)
+    return lap_x + lap_y
 
 
-def calculate_norm(gradient, row, col, rgb):
-    return abs(gradient[0][row, col, rgb]) + abs(gradient[1][row, col, rgb])
+def laplacian_matrix(n, m):
+    mat_D = scipy.sparse.lil_matrix((m, m))
+    mat_D.setdiag(-4)
+    mat_D.setdiag(1, -1)
+    mat_D.setdiag(1, 1)
+    mat_A = scipy.sparse.block_diag([mat_D] * n).tolil()
+    mat_A.setdiag(1, -m)
+    mat_A.setdiag(1, m)
+
+    return mat_A.tocsc()
 
 
-def calculate_laplacian(tgt_gradient):
-    rows_kernel = np.array([[0, 0, 0],
-                            [-1, 1, 0],
-                            [0, 0, 0]])
-    cols_kernel = np.array([[0, -1, 0],
-                            [0, 1, 0],
-                            [0, 0, 0]])
-    laplacian_rows = cv2.filter2D(tgt_gradient[0], cv2.CV_32F, rows_kernel, cv2.BORDER_REFLECT)
-    laplacian_cols = cv2.filter2D(tgt_gradient[1], cv2.CV_32F, cols_kernel, cv2.BORDER_REFLECT)
-    return laplacian_rows + laplacian_cols
+def poisson_blend(source, target, mask, center):
+    y_range, x_range = target.shape[:-1]  # height, width
 
+    source = add_paddind(target, source)
 
-def calculate_laplacian_matrix(tgt_height, tgt_width):
-    # TODO: maybe should multiply by -1, in medium tgt_width should be tgt_height
-    fl = scipy.sparse.lil_matrix((tgt_height, tgt_height))
-    fl.setdiag(-1, -1)
-    fl.setdiag(4)
-    fl.setdiag(-1, 1)
-    A = scipy.sparse.block_diag([fl] * tgt_width).tolil()
-    A.setdiag(-1, 1 * tgt_height)
-    A.setdiag(-1, -1 * tgt_height)
-    return A*(-1)
+    s_grad_x, s_grad_y = get_gradient(source)
+    t_grad_x, t_grad_y = get_gradient(target)
 
+    for c in range(target.shape[2]):
+        for y in range(y_range):
+            for x in range(x_range):
+                if mask[y, x] != 0:
+                    if abs(t_grad_x[y, x, c]) + abs(t_grad_y[y, x, c]) < abs(s_grad_x[y, x, c]) + abs(
+                            s_grad_y[y, x, c]):
+                        t_grad_x[y, x, c] = s_grad_x[y, x, c]
+                        t_grad_y[y, x, c] = s_grad_y[y, x, c]
+                        # mixed gradient 按梯度绝对值分配 gradient
 
-def poisson_blend(im_src, im_tgt, im_mask, center):
-    # TODO: Implement Poisson blending of the source image onto the target ROI
-    rows, cols = im_tgt.shape[:2]
+    lap = get_laplacian(t_grad_x, t_grad_y)
+    # laplacian expression of result image
 
-    # calculate row and column offsets
-    offset_rows = center[1] - im_mask.shape[0] // 2
-    offset_cols = center[0] - im_mask.shape[1] // 2
+    mat_A = laplacian_matrix(y_range, x_range)
 
-    im_src = add_paddind(im_tgt, im_src)
-    im_mask = add_paddind(im_tgt, im_mask)
+    # 修改边界点
+    lap[mask == 0] = target[mask == 0]
+    for y in range(1, y_range - 1):
+        for x in range(1, x_range - 1):
+            if mask[y, x] == 0:
+                k = x + y * x_range
+                mat_A[k, k] = 1
+                mat_A[k, k - 1] = mat_A[k, k + 1] = 0
+                mat_A[k, k - x_range] = mat_A[k, k + x_range] = 0
 
-    src_gradient = calculate_gradient(im_src)
-    tgt_gradient = calculate_gradient(im_tgt)
+    res = np.zeros(source.shape)
+    mask_flat = mask.flatten()
+    for channel in range(target.shape[2]):
+        mat_B = lap[:, :, channel].flatten()
 
-    # apply the same gradient from the source image in the target image
-    mask_indices = np.nonzero(im_mask)
-    for row, col in zip(*mask_indices):
-        for rgb in range(im_tgt.shape[2]):
-            src_gradient_norm = calculate_norm(src_gradient, row, col, rgb)
-            tgt_gradient_norm = calculate_norm(tgt_gradient, row, col, rgb)
-            if tgt_gradient_norm > src_gradient_norm:
-                tgt_gradient[0][row, col, rgb] = src_gradient[0][row, col, rgb]
-                tgt_gradient[1][row, col, rgb] = src_gradient[1][row, col, rgb]
-
-    laplacian = calculate_laplacian(tgt_gradient)
-
-    A = calculate_laplacian_matrix(rows, cols)
-
-    laplacian[im_mask == 0] = im_tgt[im_mask == 0]
-
-    A_copy = A.copy()
-    for y in range(1, rows - 1):
-        for x in range(1, cols - 1):
-            if im_mask[y, x] == 0:
-                k = x + y * cols
-                A_copy[k, k] = 1
-                A_copy[k, k - 1] = A_copy[k, k + 1] = 0
-                A_copy[k, k - cols] = A_copy[k, k + cols] = 0
-
-    res = np.zeros(im_src.shape)
-    for channel in range(im_tgt.shape[2]):
-        B = laplacian[:, :, channel].flatten()
-
-        tmp = scipy.sparse.linalg.spsolve(A_copy.tocsc(), B)
-        tmp = tmp.reshape((rows, cols))
+        tmp = scipy.sparse.linalg.spsolve(mat_A, mat_B)
+        tmp = tmp.reshape((y_range, x_range))
         tmp[tmp > 255] = 255
         tmp[tmp < 0] = 0
         res[:, :, channel] = tmp.astype('uint8')
 
     return res
-
-    im_blend = im_tgt
-    return im_src
 
 
 def parse():
