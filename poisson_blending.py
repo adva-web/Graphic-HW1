@@ -54,7 +54,12 @@ def laplacian_matrix(n, m):
 def poisson_blend(source, target, mask, center):
     y_range, x_range = target.shape[:-1]  # height, width
 
-    source = add_paddind(target, source)
+    shift = center[0] - int(source.shape[0]/2), center[1] - int(source.shape[1]/2)
+
+    M = np.float32([[1, 0, shift[0]],
+                    [0, 1, shift[1]]])
+    source = cv2.warpAffine(source, M, (x_range, y_range))
+    mask = cv2.warpAffine(mask, M, (x_range, y_range))
 
     s_grad_x, s_grad_y = get_gradient(source)
     t_grad_x, t_grad_y = get_gradient(target)
@@ -101,7 +106,7 @@ def poisson_blend(source, target, mask, center):
 def parse():
     parser = argparse.ArgumentParser()
     parser.add_argument('--src_path', type=str, default='./data/imgs/banana2.jpg', help='image file path')
-    parser.add_argument('--mask_path', type=str, default='./data/seg_GT/banana1.bmp', help='mask file path')
+    parser.add_argument('--mask_path', type=str, default='./data/seg_GT/banana2.bmp', help='mask file path')
     parser.add_argument('--tgt_path', type=str, default='./data/bg/table.jpg', help='mask file path')
     return parser.parse_args()
 
