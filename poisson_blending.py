@@ -95,42 +95,42 @@ def poisson_blend(im_src, im_tgt, im_mask, center):
     src_gradient = calculate_gradient(im_src)
     tgt_gradient = calculate_gradient(im_tgt)
 
-    # apply the same gradient from the source image in the target image
-    mask_indices = np.nonzero(im_mask)
-    for row, col in zip(*mask_indices):
-        for rgb in range(im_tgt.shape[2]):
-            src_gradient_norm = calculate_norm(src_gradient, row, col, rgb)
-            tgt_gradient_norm = calculate_norm(tgt_gradient, row, col, rgb)
-            if tgt_gradient_norm < src_gradient_norm:
-                tgt_gradient[0][row, col, rgb] = src_gradient[0][row, col, rgb]
-                tgt_gradient[1][row, col, rgb] = src_gradient[1][row, col, rgb]
-
-    laplacian = calculate_laplacian(tgt_gradient)
-
-    A = calculate_laplacian_matrix(rows, cols)
-
-    laplacian[im_mask == 0] = im_tgt[im_mask == 0]
-
-    A_copy = A.copy()
-    for y in range(1, rows - 1):
-        for x in range(1, cols - 1):
-            if im_mask[y, x] == 0:
-                k = x + y * cols
-                A_copy[k, k] = 1
-                A_copy[k, k - 1] = A_copy[k, k + 1] = 0
-                A_copy[k, k - cols] = A_copy[k, k + cols] = 0
-
-    res = np.zeros(im_src.shape)
-    for channel in range(im_tgt.shape[2]):
-        B = laplacian[:, :, channel].flatten()
-
-        tmp = scipy.sparse.linalg.spsolve(A_copy.tocsc(), B)
-        tmp = tmp.reshape((rows, cols))
-        tmp[tmp > 255] = 255
-        tmp[tmp < 0] = 0
-        res[:, :, channel] = tmp.astype('uint8')
-
-    return res
+    # # apply the same gradient from the source image in the target image
+    # mask_indices = np.nonzero(im_mask)
+    # for row, col in zip(*mask_indices):
+    #     for rgb in range(im_tgt.shape[2]):
+    #         src_gradient_norm = calculate_norm(src_gradient, row, col, rgb)
+    #         tgt_gradient_norm = calculate_norm(tgt_gradient, row, col, rgb)
+    #         if tgt_gradient_norm < src_gradient_norm:
+    #             tgt_gradient[0][row, col, rgb] = src_gradient[0][row, col, rgb]
+    #             tgt_gradient[1][row, col, rgb] = src_gradient[1][row, col, rgb]
+    #
+    # laplacian = calculate_laplacian(tgt_gradient)
+    #
+    # A = calculate_laplacian_matrix(rows, cols)
+    #
+    # laplacian[im_mask == 0] = im_tgt[im_mask == 0]
+    #
+    # A_copy = A.copy()
+    # for y in range(1, rows - 1):
+    #     for x in range(1, cols - 1):
+    #         if im_mask[y, x] == 0:
+    #             k = x + y * cols
+    #             A_copy[k, k] = 1
+    #             A_copy[k, k - 1] = A_copy[k, k + 1] = 0
+    #             A_copy[k, k - cols] = A_copy[k, k + cols] = 0
+    #
+    # res = np.zeros(im_src.shape)
+    # for channel in range(im_tgt.shape[2]):
+    #     B = laplacian[:, :, channel].flatten()
+    #
+    #     tmp = scipy.sparse.linalg.spsolve(A_copy.tocsc(), B)
+    #     tmp = tmp.reshape((rows, cols))
+    #     tmp[tmp > 255] = 255
+    #     tmp[tmp < 0] = 0
+    #     res[:, :, channel] = tmp.astype('uint8')
+    #
+    # return res
 
     im_blend = im_tgt
     return im_src
