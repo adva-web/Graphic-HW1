@@ -48,7 +48,7 @@ def grabcut(img, rect, n_iter=5):
 
     initialize_params(img)
 
-    bgGMM, fgGMM = initalize_GMMs(img, mask, 2)
+    bgGMM, fgGMM = initalize_GMMs(img, mask)
 
     # TODO: should be 1000, n_iter == num_iter? and remove print energy
     num_iters = 5
@@ -192,6 +192,9 @@ def update_GMM_covariance_matrix(gmm, n_features, labels, unique_labels, count, 
             new_covariance_matrix[label_index] = 0
         else:
             new_covariance_matrix[label_index] = np.cov(np.transpose(img_pixels[label == labels]))
+        # Add regularization to diagonal to avoid singular matrix
+        if np.linalg.det(new_covariance_matrix[label_index]) <= 0:
+            new_covariance_matrix[label_index] += np.eye(new_covariance_matrix[label_index].shape[0]) * 1e-7
     gmm.covariances_ = new_covariance_matrix
 
 
@@ -249,7 +252,7 @@ def calculate_probability_for_component(samples, component, gmm):
     if gmm.weights_[component] > 0:
         sub = samples - gmm.means_[component]
         sub_t = np.transpose(sub)
-        power = np.sum(sub * np.transpose(np.dot(np.linalg.pinv(gmm.covariances_[component]), sub_t)), axis=1)
+        power = np.sum(sub * np.transpose(np.dot(np.linalg.inv(gmm.covariances_[component]), sub_t)), axis=1)
         pdf = np.exp(-0.5 * power) / (np.sqrt(2 * np.pi) * np.sqrt(np.linalg.det(gmm.covariances_[component])))
     return pdf
 
@@ -285,7 +288,7 @@ def trimap_bg_fg(node, pixels, edge_weight):
 def trimap_unknown(grid, node, pixels, gmm):
     edges_t_link.extend(list(zip([node] * pixels.size, pixels)))
     # D is according to formula (2) in "Implementing GrabCut" document
-    D = -np.log(calculate_probability_for_GMM(np.reshape(img, (grid, 3))[pixels], gmm))
+    D = -np.log(calculate_probability_for_GMM(np.reshape(img, (grid, 3))[pixels], gmm) + 1e-20)
     weights_t.extend(D.tolist())
 
 
@@ -402,7 +405,7 @@ def cal_metric(predicted_mask, gt_mask):
 
 def parse():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--input_name', type=str, default='banana1', help='name of image from the course files')
+    parser.add_argument('--input_name', type=str, default='fullmoon', help='name of image from the course files')
     parser.add_argument('--eval', type=int, default=1, help='calculate the metrics')
     parser.add_argument('--input_img_path', type=str, default='', help='if you wish to use your own img_path')
     parser.add_argument('--use_file_rect', type=int, default=1, help='Read rect from course files')
