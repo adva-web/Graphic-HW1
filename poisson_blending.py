@@ -7,18 +7,12 @@ import argparse
 
 
 # pad the image to the size of the target image
-def add_padding(im_src, im_tgt, im_mask, center):
-    # Calculate row and column offsets
-    offset_rows = center[0] - im_mask.shape[0] // 2
-    offset_cols = center[1] - im_mask.shape[1] // 2
-    # Update source
-    src_resized = np.zeros((im_tgt.shape[0], im_tgt.shape[1], 3), dtype=np.int64)
-    src_resized[offset_rows:-offset_rows, offset_cols:-offset_cols, :] = im_src
-    # Update mask
-    mask_resized = np.zeros((im_tgt.shape[0], im_tgt.shape[1]), dtype=np.int64)
-    mask_resized[offset_rows:-offset_rows, offset_cols:-offset_cols] = im_mask
-
-    return src_resized, mask_resized
+def add_padding(im_tgt, img):
+    pad_top = (im_tgt.shape[0] - img.shape[0]) // 2
+    pad_bottom = im_tgt.shape[0] - img.shape[0] - pad_top
+    pad_left = (im_tgt.shape[1] - img.shape[1]) // 2
+    pad_right = im_tgt.shape[1] - img.shape[1] - pad_left
+    return cv2.copyMakeBorder(img, pad_top, pad_bottom, pad_left, pad_right, cv2.BORDER_CONSTANT, value=0)
 
 
 # Aa suggested in https://hingxyu.medium.com/gradient-domain-fusion-using-poisson-blending-8a7dc1bbaa7b
@@ -53,8 +47,8 @@ def create_rgb_vectors(img):
 
 def poisson_blend(im_src, im_tgt, im_mask, center):
     # Add padding to images
-    im_src, im_mask = add_padding(im_src, im_tgt, im_mask, center)
-    im_src, im_tgt, im_mask = add_img_border(im_src, im_tgt, im_mask)
+    im_src = add_padding(im_tgt, im_src)
+    im_mask = add_padding(im_tgt, im_mask)
 
     # Get new dimensions for target
     rows, cols = im_tgt.shape[:2]
@@ -98,9 +92,9 @@ def poisson_blend(im_src, im_tgt, im_mask, center):
 
 def parse():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--src_path', type=str, default='./data/imgs/banana2.jpg', help='image file path')
-    parser.add_argument('--mask_path', type=str, default='./data/seg_GT/banana2.bmp', help='mask file path')
-    parser.add_argument('--tgt_path', type=str, default='./data/bg/table.jpg', help='mask file path')
+    parser.add_argument('--src_path', type=str, default='./data/imgs/stone2.jpg', help='image file path')
+    parser.add_argument('--mask_path', type=str, default='./data/seg_GT/stone2.bmp', help='mask file path')
+    parser.add_argument('--tgt_path', type=str, default='./data/bg/grass_mountains.jpeg', help='mask file path')
     return parser.parse_args()
 
 
