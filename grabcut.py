@@ -50,8 +50,7 @@ def grabcut(img, rect, n_iter=5):
 
     bgGMM, fgGMM = initalize_GMMs(img, mask)
 
-    # TODO: should be 1000, n_iter == num_iter? and remove print energy
-    num_iters = 5
+    num_iters = 1000
     energy = 0
     for i in range(num_iters):
         #Update GMM
@@ -377,7 +376,7 @@ def check_convergence(energy, prev_energy):
     convergence = False
     res = np.abs((prev_energy-energy)/energy)
     print("diff", res)
-    if res < np.finfo(np.float32).eps:
+    if res < 0.0025:
         convergence = True
     return convergence
 
