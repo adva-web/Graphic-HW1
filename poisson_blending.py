@@ -6,7 +6,7 @@ from scipy.sparse.linalg import spsolve
 import argparse
 
 
-# pad the image to the size of the target image
+# Pad the image to the size of the target image
 def add_padding(im_tgt, img):
     pad_top = (im_tgt.shape[0] - img.shape[0]) // 2
     pad_bottom = im_tgt.shape[0] - img.shape[0] - pad_top
@@ -15,13 +15,13 @@ def add_padding(im_tgt, img):
     return cv2.copyMakeBorder(img, pad_top, pad_bottom, pad_left, pad_right, cv2.BORDER_CONSTANT, value=0)
 
 
-# Aa suggested in https://hingxyu.medium.com/gradient-domain-fusion-using-poisson-blending-8a7dc1bbaa7b
+# As suggested in https://hingxyu.medium.com/gradient-domain-fusion-using-poisson-blending-8a7dc1bbaa7b
 # To prevent the inside mask area is in the border (edge case)
 def add_img_border(im_src, im_tgt, im_mask):
-    # add a 1-pixel symmetric buffer if the valid pixels in the mask are on the edge of the source image
-    im_src = cv2.copyMakeBorder(im_src, 1, 1, 1, 1, cv2.BORDER_REFLECT)
-    im_tgt = cv2.copyMakeBorder(im_tgt, 1, 1, 1, 1, cv2.BORDER_REFLECT)
-    im_mask = cv2.copyMakeBorder(im_mask, 1, 1, 1, 1, cv2.BORDER_REFLECT)
+    # Add a 1-pixel symmetric buffer if the valid pixels in the mask are on the edge of the source image
+    im_src = cv2.copyMakeBorder(im_src, 1, 1, 1, 1, cv2.BORDER_CONSTANT, value=0)
+    im_tgt = cv2.copyMakeBorder(im_tgt, 1, 1, 1, 1, cv2.BORDER_CONSTANT, value=0)
+    im_mask = cv2.copyMakeBorder(im_mask, 1, 1, 1, 1, cv2.BORDER_CONSTANT, value=0)
 
     return im_src, im_tgt, im_mask
 
@@ -45,12 +45,21 @@ def create_rgb_vectors(img):
     return [create_vector(img, rgb) for rgb in range(img.shape[2])]
 
 
+def solve_poisson_equation(A, B, rows, cols):
+    tmp = spsolve(A, B)
+    tmp = tmp.reshape((rows, cols))
+    tmp[tmp > 255] = 255
+    tmp[tmp < 0] = 0
+    return tmp.astype('uint8')
+
+
 def poisson_blend(im_src, im_tgt, im_mask, center):
     # Add padding to images
     im_src = add_padding(im_tgt, im_src)
     im_mask = add_padding(im_tgt, im_mask)
+    im_src, im_tgt, im_mask = add_img_border(im_src, im_tgt, im_mask)
 
-    # Get new dimensions for target
+    # Get the new dimensions of target image
     rows, cols = im_tgt.shape[:2]
 
     # Flatten matrices
@@ -58,7 +67,7 @@ def poisson_blend(im_src, im_tgt, im_mask, center):
     src_vectors = create_rgb_vectors(im_src)
     tgt_vectors = create_rgb_vectors(im_tgt)
 
-    # Create
+    # Create laplacian matrix
     A, laplacian = calculate_laplacian_matrix(rows, cols)
 
     # Outside the blending part (according to mask)
@@ -80,11 +89,7 @@ def poisson_blend(im_src, im_tgt, im_mask, center):
         outside_mask_pixels = np.where(mask_vector == 0)
         B[outside_mask_pixels] = tgt_vectors[rgb][outside_mask_pixels]
 
-        tmp = spsolve(A, B)
-        tmp = tmp.reshape((rows, cols))
-        tmp[tmp > 255] = 255
-        tmp[tmp < 0] = 0
-        im_tgt[:, :, rgb] = tmp.astype('uint8')
+        im_tgt[:, :, rgb] = solve_poisson_equation(A, B, rows, cols)
 
     im_blend = im_tgt[1:-1, 1:-1, :]
     return im_blend
