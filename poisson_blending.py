@@ -97,9 +97,11 @@ def poisson_blend(im_src, im_tgt, im_mask, center):
 
 def parse():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--src_path', type=str, default='./data/imgs/stone2.jpg', help='image file path')
-    parser.add_argument('--mask_path', type=str, default='./data/seg_GT/stone2.bmp', help='mask file path')
-    parser.add_argument('--tgt_path', type=str, default='./data/bg/grass_mountains.jpeg', help='mask file path')
+    parser.add_argument('--src_path', type=str, default='./data/imgs/cross.jpg', help='image file path')
+    parser.add_argument('--mask_path', type=str, default='./data/generated_mask/cross_5.png', help='mask file path')
+    # parser.add_argument('--tgt_path', type=str, default='./data/bg/table.jpg', help='mask file path')
+    parser.add_argument('--tgt_path', type=str, default='./data/bg/wall.jpg', help='mask file path')
+    # parser.add_argument('--tgt_path', type=str, default='./data/bg/grass_mountains.jpeg', help='mask file path')
     return parser.parse_args()
 
 
@@ -120,5 +122,6 @@ if __name__ == "__main__":
     im_clone = poisson_blend(im_src, im_tgt, im_mask, center)
 
     cv2.imshow('Cloned image', im_clone)
+    cv2.imwrite("/Users/noamb/Documents/graphic/poisson_blending_result_banana1_5.png", im_clone)
     cv2.waitKey(0)
     cv2.destroyAllWindows()

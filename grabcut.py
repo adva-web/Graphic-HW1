@@ -9,7 +9,7 @@ import time
 # CONSTANTS #
 #############
 GC_BGD = 0 # Hard bg pixel
-GC_FGD = 1 # Hard fg pixel, will not be used
+GC_FGD = 1 # Hard fg pixel
 GC_PR_BGD = 2 # Soft bg pixel
 GC_PR_FGD = 3 # Soft fg pixel
 # The constant gamma was obtained as 50 by optimizing performance against ground truth over a training set of 15 images.
@@ -48,7 +48,7 @@ def grabcut(img, rect, n_iter=5):
 
     initialize_params(img)
 
-    bgGMM, fgGMM = initalize_GMMs(img, mask)
+    bgGMM, fgGMM = initalize_GMMs(img, mask, 5)
 
     num_iters = 1000
     energy = 0
@@ -298,7 +298,6 @@ def trimap_unknown(grid, node, pixels, gmm):
 # 1.The Background T-link connects the pixel to the Background node.
 # 2.The Foreground T-link connects the pixel to the Foreground node.
 def calculate_t_links(mask, bgGMM, fgGMM):
-    # TODO: consider adding help functions
     global rows, columns, k, edges_t_link, weights_t
 
     flatten_mask = mask.flatten()
@@ -372,7 +371,6 @@ def final_mask(mask):
 
 # Check convergence according to the energy delta
 def check_convergence(energy, prev_energy):
-    # TODO: implement convergence check
     convergence = False
     res = np.abs((prev_energy-energy)/energy)
     print("diff", res)
@@ -429,6 +427,9 @@ if __name__ == '__main__':
 
     img = cv2.imread(input_path)
     simple_img = np.asarray(img, dtype=np.float64)
+    # TODO: delete after analyze
+    # ksize = (15, 15)
+    # blur_img = cv2.blur(img, ksize)
 
     # Run the GrabCut algorithm on the image and bounding box
     mask, bgGMM, fgGMM = grabcut(simple_img, rect)
@@ -446,7 +447,12 @@ if __name__ == '__main__':
     cv2.imshow('Original Image', img)
     cv2.imshow('GrabCut Mask', 255 * mask)
     cv2.imshow('GrabCut Result', img_cut)
+
+    # TODO: delete after analyze
+    # cv2.imwrite("/Users/noamb/Documents/graphic/cross_blur_low.png", 255 * mask)
+    cv2.imwrite("/Users/noamb/Documents/graphic/fullmoon_5.png", img_cut)
     elapsed_time = time.time() - start_time
     print("Elapsed time: {:.2f} seconds".format(elapsed_time))
+
     cv2.waitKey(0)
     cv2.destroyAllWindows()
