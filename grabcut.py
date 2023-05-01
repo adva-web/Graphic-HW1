@@ -48,7 +48,7 @@ def grabcut(img, rect, n_iter=5):
 
     initialize_params(img)
 
-    bgGMM, fgGMM = initalize_GMMs(img, mask, 5)
+    bgGMM, fgGMM = initalize_GMMs(img, mask)
 
     num_iters = 1000
     energy = 0
@@ -58,7 +58,7 @@ def grabcut(img, rect, n_iter=5):
 
         prev_energy = energy
         mincut_sets, energy = calculate_mincut(mask, bgGMM, fgGMM)
-        print("energy", energy)
+
         mask = update_mask(mincut_sets, mask)
 
         if check_convergence(energy, prev_energy):
@@ -207,7 +207,6 @@ def update_GMM_fields(pixels, gmm, img_pixels):
     update_GMM_covariance_matrix(gmm, n_features, labels, unique_labels, count, img_pixels)
 
 
-# Define helper functions for the GrabCut algorithm
 def update_GMMs(img, mask, bgGMM, fgGMM):
     bg_pixels, fg_pixels = split_bg_fg_pixels(mask)
     bg_img_pixels, fg_img_pixels = get_img_pixels(img, bg_pixels, fg_pixels)
@@ -373,7 +372,6 @@ def final_mask(mask):
 def check_convergence(energy, prev_energy):
     convergence = False
     res = np.abs((prev_energy-energy)/energy)
-    print("diff", res)
     if res < 0.0025:
         convergence = True
     return convergence
@@ -427,9 +425,6 @@ if __name__ == '__main__':
 
     img = cv2.imread(input_path)
     simple_img = np.asarray(img, dtype=np.float64)
-    # TODO: delete after analyze
-    # ksize = (15, 15)
-    # blur_img = cv2.blur(img, ksize)
 
     # Run the GrabCut algorithm on the image and bounding box
     mask, bgGMM, fgGMM = grabcut(simple_img, rect)
@@ -447,12 +442,6 @@ if __name__ == '__main__':
     cv2.imshow('Original Image', img)
     cv2.imshow('GrabCut Mask', 255 * mask)
     cv2.imshow('GrabCut Result', img_cut)
-
-    # TODO: delete after analyze
-    # cv2.imwrite("/Users/noamb/Documents/graphic/cross_blur_low.png", 255 * mask)
-    cv2.imwrite("/Users/noamb/Documents/graphic/fullmoon_5.png", img_cut)
-    elapsed_time = time.time() - start_time
-    print("Elapsed time: {:.2f} seconds".format(elapsed_time))
 
     cv2.waitKey(0)
     cv2.destroyAllWindows()
